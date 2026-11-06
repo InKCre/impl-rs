@@ -1,0 +1,26 @@
+[package]
+name = "inkcre-rss-extension"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "InKCre RSS/Atom 原生扩展"
+publish = false
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+dom_smoothie.workspace = true
+encoding_rs.workspace = true
+feed-rs.workspace = true
+inkcre-core.workspace = true
+inkcre-extension-sdk.workspace = true
+reqwest.workspace = true
+roxmltree.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

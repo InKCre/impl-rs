@@ -1,7 +1,9 @@
 mod auth;
 mod config;
 mod error;
+mod knowledge_routes;
 mod routes;
+mod source_routes;
 
 use std::{
     collections::BTreeMap,
@@ -14,7 +16,13 @@ use std::{
 };
 
 use clap::Parser;
-use inkcre_core::{Core, extension::ExtensionHost};
+use inkcre_core::{
+    Core,
+    cron::CronScheduler,
+    extension::ExtensionHost,
+    source::SourceRuntime,
+    worker::{JobRegistry, Worker, WorkerConfig},
+};
 use serde_json::{Value, json};
 use tokio::{net::TcpListener, sync::watch};
 
@@ -76,6 +84,38 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     let core = Core::connect(&args.database.database_url, args.database.max_connections)
         .await
         .map_err(|error| error.to_string())?;
+    let sources = SourceRuntime::new(core.clone());
+    let jobs = JobRegistry::new();
+    for handler in sources.job_handlers() {
+        jobs.register(handler).map_err(|error| error.to_string())?;
+    }
+    jobs.publish_catalog(&core)
+        .await
+        .map_err(|error| error.to_string())?;
+    let worker = if args.no_worker {
+        None
+    } else {
+        Some(
+            Worker::new(
+                core.clone(),
+                jobs.clone(),
+                WorkerConfig {
+                    concurrency: args.worker_concurrency,
+                    discover_pending: !args.no_worker_discovery,
+                    ..Default::default()
+                },
+            )
+            .map_err(|error| error.to_string())?,
+        )
+    };
+    let cron = if args.no_cron {
+        None
+    } else {
+        Some(
+            CronScheduler::new(core.clone(), Duration::from_secs(10))
+                .map_err(|error| error.to_string())?,
+        )
+    };
     core.peer_register(
         peer_id,
         &args.peer_name,
@@ -91,19 +131,13 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
     let host = ExtensionHost::new(core.clone(), peer_id, args.state_dir.join("extensions"))
-        .with_database_url(args.database.database_url.clone());
+        .with_database_url(args.database.database_url.clone())
+        .with_jobs(jobs)
+        .with_sources(sources);
     let lease_valid = Arc::new(AtomicBool::new(true));
-    let state = routes::AppState {
-        core: core.clone(),
-        host: host.clone(),
-        peer_id,
-        secret: Arc::from(args.jwt_secret),
-        lease_valid: lease_valid.clone(),
-        catalog: Arc::new(catalog),
-        timeout: Duration::from_secs(args.request_timeout_seconds),
-    };
     let (stop_tx, mut stop_rx) = watch::channel(false);
     let mut reconcile_stop = stop_rx.clone();
+    let mut runtime_stop = stop_rx.clone();
     let reconcile_host = host.clone();
     let reconcile_task = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(5));
@@ -164,6 +198,39 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
             };
         }
     }
+    let worker = worker.map(Worker::start);
+    let notifier = worker.as_ref().map(|handle| handle.notifier());
+    let cron = cron.map(CronScheduler::start);
+    let runtime_task = tokio::spawn(async move {
+        let _ = runtime_stop.changed().await;
+        // 同时撤回 Cron 生产与 Job admission，待执行收尾后再由外层停止插件。
+        tokio::join!(
+            async move {
+                if let Some(cron) = cron
+                    && cron.shutdown().await.is_err()
+                {
+                    tracing::warn!("Cron runtime shutdown failed");
+                }
+            },
+            async move {
+                if let Some(worker) = worker
+                    && worker.shutdown().await.is_err()
+                {
+                    tracing::warn!("Job worker shutdown failed");
+                }
+            }
+        );
+    });
+    let state = routes::AppState {
+        core: core.clone(),
+        host: host.clone(),
+        peer_id,
+        secret: Arc::from(args.jwt_secret),
+        lease_valid: lease_valid.clone(),
+        catalog: Arc::new(catalog),
+        timeout: Duration::from_secs(args.request_timeout_seconds),
+        worker: notifier,
+    };
     tracing::info!(address=%args.bind,peer_id=%peer_id,"HTTP Peer listening");
     let signal_tx = stop_tx.clone();
     let result = axum::serve(listener, routes::router(state))
@@ -176,6 +243,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     lease_valid.store(false, Ordering::Relaxed);
     let _ = lease_task.await;
     let _ = reconcile_task.await;
+    let _ = runtime_task.await;
     host.shutdown().await;
     let cleared = core.peer_clear_lease(peer_id).await;
     core.close().await;

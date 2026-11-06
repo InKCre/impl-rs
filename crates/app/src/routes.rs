@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use crate::{
     auth,
-    error::{ApiError, ApiJson, ApiPath, ApiQuery, ApiResult},
+    error::{ApiBytes, ApiError, ApiJson, ApiPath, ApiQuery, ApiResult},
 };
 
 #[derive(Clone)]
@@ -39,6 +39,7 @@ pub struct AppState {
     pub lease_valid: Arc<AtomicBool>,
     pub catalog: Arc<BTreeMap<(String, String), PathBuf>>,
     pub timeout: Duration,
+    pub worker: Option<inkcre_core::worker::WorkerNotifier>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -90,6 +91,8 @@ pub fn router(state: AppState) -> Router {
             "/extensions/{name}/participation",
             axum::routing::delete(extension_unselect),
         )
+        .merge(crate::knowledge_routes::router())
+        .merge(crate::source_routes::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
         .route(
@@ -193,7 +196,7 @@ async fn block_create(
 ) -> ApiResult<(StatusCode, Json<Block>)> {
     Ok((
         StatusCode::CREATED,
-        Json(state.core.block_create(input).await?),
+        Json(state.core.knowledge().create_block(input).await?),
     ))
 }
 
@@ -215,7 +218,7 @@ async fn block_patch(
     ApiPath(id): ApiPath<i32>,
     ApiJson(input): ApiJson<BlockPatch>,
 ) -> ApiResult<Json<Block>> {
-    Ok(Json(state.core.block_patch(id, input).await?))
+    Ok(Json(state.core.knowledge().patch_block(id, input).await?))
 }
 
 async fn block_delete(
@@ -630,22 +633,10 @@ async fn storages(State(state): State<AppState>) -> ApiResult<Json<Vec<inkcre_co
     Ok(Json(state.core.storages().await?))
 }
 
-type BinaryBody = Result<axum::body::Bytes, axum::extract::rejection::BytesRejection>;
-fn binary_body(body: BinaryBody) -> ApiResult<axum::body::Bytes> {
-    body.map_err(|error| {
-        ApiError::new(
-            error.status(),
-            "invalid_body",
-            "unable to read request bytes",
-        )
-    })
-}
-
 async fn blob_create(
     State(state): State<AppState>,
-    body: BinaryBody,
+    ApiBytes(bytes): ApiBytes,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    let bytes = binary_body(body)?;
     let id = state.core.blob_create(&bytes).await?;
     Ok((StatusCode::CREATED, Json(json!({"id":id}))))
 }
@@ -665,9 +656,8 @@ async fn blob_read(
 async fn blob_update(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<Uuid>,
-    body: BinaryBody,
+    ApiBytes(bytes): ApiBytes,
 ) -> ApiResult<StatusCode> {
-    let bytes = binary_body(body)?;
     if !state.core.blob_update(id, &bytes).await? {
         return Err(ApiError::not_found("storage blob not found"));
     }
@@ -789,10 +779,11 @@ async fn job_submit(
     State(state): State<AppState>,
     ApiJson(input): ApiJson<inkcre_core::JobInput>,
 ) -> ApiResult<(StatusCode, Json<inkcre_core::Job>)> {
-    Ok((
-        StatusCode::CREATED,
-        Json(state.core.job_submit(input).await?),
-    ))
+    let job = state.core.job_submit(input).await?;
+    if let Some(worker) = &state.worker {
+        worker.notify_job(job.id);
+    }
+    Ok((StatusCode::CREATED, Json(job)))
 }
 
 async fn job_delete(

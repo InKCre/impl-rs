@@ -4,7 +4,10 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
+    sync::{
+        Arc, Mutex as SyncMutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -19,12 +22,18 @@ use sha2::{Digest, Sha256};
 use tokio::{
     io::{AsyncReadExt, BufReader},
     process::{Child, ChildStdin, ChildStdout, Command},
-    sync::Mutex,
-    time::timeout,
+    sync::{Mutex, watch},
+    time::{Instant, timeout, timeout_at},
 };
 use uuid::Uuid;
 
 use crate::{Core, Participation};
+use crate::{
+    source::{SourceRegistry, SourceRuntime},
+    worker::JobRegistry,
+};
+
+mod adapters;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -49,6 +58,8 @@ pub enum Error {
     Conflict(String),
     #[error("扩展运行失败：{0}")]
     Runtime(String),
+    #[error("扩展请求排队超时，尚未发送")]
+    QueueTimeout,
     #[error("扩展返回业务错误（{0}）")]
     Remote(String),
     #[error("扩展文件操作失败")]
@@ -82,6 +93,8 @@ pub struct ExtensionHost {
     peer_id: Uuid,
     manifest_dir: PathBuf,
     database_url: Option<Arc<str>>,
+    jobs: Option<JobRegistry>,
+    sources: Option<SourceRuntime>,
     inner: Arc<Mutex<HostState>>,
 }
 
@@ -96,26 +109,97 @@ struct HostState {
 struct Running {
     manifest: Manifest,
     descriptor: Descriptor,
-    process: Process,
+    process: Arc<Process>,
 }
 
 struct Process {
-    child: Child,
+    control: Arc<ProcessControl>,
+    io: Mutex<ProtocolIo>,
+}
+
+struct ProtocolIo {
     input: ChildStdin,
     output: BufReader<ChildStdout>,
     next_id: u64,
 }
 
-/// HTTP 调用 future 被取消时立即终止占用协议流的进程；后续 reconcile/wait 负责回收。
-struct KillOnCancel<'a> {
-    child: &'a mut Child,
+struct ProcessControl {
+    child: SyncMutex<Child>,
+    accepting: AtomicBool,
+    publication: SyncMutex<Option<Publication>>,
+    stop_signal: watch::Sender<bool>,
+    restartable: AtomicBool,
+}
+
+/// 只记录本次启动的注册身份；registry 中的 adapter 只持 Weak<Process>。
+struct Publication {
+    owner: Uuid,
+    knowledge: Arc<crate::knowledge::Registry>,
+    jobs: Option<JobRegistry>,
+    sources: Option<SourceRegistry>,
+}
+
+impl Publication {
+    fn withdraw(self) {
+        let _ = self.knowledge.unregister_owner(self.owner);
+        if let Some(jobs) = self.jobs {
+            let _ = jobs.unregister_owner(self.owner);
+        }
+        if let Some(sources) = self.sources {
+            let _ = sources.unregister_owner(self.owner);
+        }
+    }
+}
+
+impl ProcessControl {
+    fn cancel(&self) {
+        self.restartable.store(true, Ordering::Release);
+        self.fail();
+    }
+
+    fn fail(&self) {
+        self.accepting.store(false, Ordering::Release);
+        let publication = self
+            .publication
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(publication) = publication {
+            publication.withdraw();
+        }
+        let _ = self
+            .child
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .start_kill();
+    }
+
+    fn reaped(&self) -> std::io::Result<bool> {
+        Ok(self
+            .child
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_wait()?
+            .is_some())
+    }
+}
+
+impl Drop for ProcessControl {
+    fn drop(&mut self) {
+        self.fail();
+    }
+}
+
+/// future 被取消时撤销业务能力并立即结束实际子进程；不留下失配的协议流。
+struct KillOnCancel {
+    control: Arc<ProcessControl>,
     completed: bool,
 }
 
-impl Drop for KillOnCancel<'_> {
+impl Drop for KillOnCancel {
     fn drop(&mut self) {
         if !self.completed {
-            let _ = self.child.start_kill();
+            self.control.cancel();
         }
     }
 }
@@ -150,16 +234,88 @@ impl Process {
                 .ok_or_else(|| Error::Runtime("stdout 不可用".into()))?,
         );
         Ok(Self {
-            child,
-            input,
-            output,
-            next_id: 1,
+            control: Arc::new(ProcessControl {
+                child: SyncMutex::new(child),
+                accepting: AtomicBool::new(true),
+                publication: SyncMutex::new(None),
+                stop_signal: watch::channel(false).0,
+                restartable: AtomicBool::new(false),
+            }),
+            io: Mutex::new(ProtocolIo {
+                input,
+                output,
+                next_id: 1,
+            }),
         })
     }
 
-    async fn call(&mut self, method: &str, params: Value, duration: Duration) -> Result<Value> {
-        let id = self.next_id;
-        self.next_id = self
+    fn is_alive(&self) -> bool {
+        if !self.control.accepting.load(Ordering::Acquire) {
+            return false;
+        }
+        if self.control.reaped().unwrap_or(true) {
+            self.control.fail();
+            return false;
+        }
+        true
+    }
+
+    async fn call(&self, method: &str, params: Value, duration: Option<Duration>) -> Result<Value> {
+        let deadline = duration.map(|duration| Instant::now() + duration);
+        if !self.is_alive() {
+            return Err(Error::Runtime("扩展进程已不可用".into()));
+        }
+        // 排队尚未取得协议流，超时只撤销这个等待者，不触发进程取消 guard。
+        let mut io = match deadline {
+            Some(deadline) => timeout_at(deadline, self.io.lock())
+                .await
+                .map_err(|_| Error::QueueTimeout)?,
+            None => self.io.lock().await,
+        };
+        let remaining = deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+        if remaining.is_some_and(|remaining| remaining.is_zero()) {
+            return Err(Error::QueueTimeout);
+        }
+        if !self.is_alive() {
+            return Err(Error::Runtime("扩展进程已不可用".into()));
+        }
+        self.exchange(&mut io, method, params, remaining).await
+    }
+
+    async fn try_call(&self, method: &str, params: Value) -> Result<Option<Value>> {
+        if !self.is_alive() {
+            return Err(Error::Runtime("扩展进程已不可用".into()));
+        }
+        let Ok(mut io) = self.io.try_lock() else {
+            return Ok(None);
+        };
+        self.exchange(&mut io, method, params, Some(CALL_TIMEOUT))
+            .await
+            .map(Some)
+    }
+
+    fn is_idle(&self) -> bool {
+        self.is_alive() && self.io.try_lock().is_ok()
+    }
+
+    async fn stopped(&self) {
+        let mut signal = self.control.stop_signal.subscribe();
+        while !*signal.borrow_and_update() {
+            if signal.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    async fn exchange(
+        &self,
+        io: &mut ProtocolIo,
+        method: &str,
+        params: Value,
+        duration: Option<Duration>,
+    ) -> Result<Value> {
+        let id = io.next_id;
+        io.next_id = io
             .next_id
             .checked_add(1)
             .ok_or_else(|| Error::Runtime("请求 ID 耗尽".into()))?;
@@ -170,12 +326,12 @@ impl Process {
             params,
         };
         let mut cancellation = KillOnCancel {
-            child: &mut self.child,
+            control: self.control.clone(),
             completed: false,
         };
-        let result = timeout(duration, async {
-            write_frame(&mut self.input, &request).await?;
-            let frame = read_frame(&mut self.output)
+        let operation = async {
+            write_frame(&mut io.input, &request).await?;
+            let frame = read_frame(&mut io.output)
                 .await?
                 .ok_or_else(|| Error::Runtime("扩展提前退出".into()))?;
             let raw: Value = serde_json::from_slice(&frame)?;
@@ -197,25 +353,54 @@ impl Process {
                 Some(error) => Err(Error::Remote(error.code)),
                 None => Ok(response.result.unwrap_or(Value::Null)),
             }
-        })
-        .await
-        .map_err(|_| Error::Runtime("扩展请求超时".into()))?;
+        };
+        let result = if let Some(duration) = duration {
+            match timeout(duration, operation).await {
+                Ok(result) => result,
+                Err(_) => Err(Error::Runtime("扩展请求超时".into())),
+            }
+        } else {
+            operation.await
+        };
+        if result
+            .as_ref()
+            .is_err_and(|error| !matches!(error, Error::Remote(_)))
+        {
+            self.control.fail();
+        }
         cancellation.completed = true;
         result
     }
 
-    async fn terminate(&mut self) {
-        if self.child.try_wait().ok().flatten().is_none() {
-            let _ = self.child.kill().await;
-        }
-        let _ = self.child.wait().await;
+    async fn terminate(&self) {
+        self.control.fail();
+        let _ = timeout(STOP_TIMEOUT, async {
+            while !self.control.reaped().unwrap_or(true) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
     }
 
-    async fn stop(&mut self) {
-        let _ = self.call("stop", Value::Null, STOP_TIMEOUT).await;
-        if !matches!(timeout(STOP_TIMEOUT, self.child.wait()).await, Ok(Ok(_))) {
-            self.terminate().await;
+    async fn stop(&self) {
+        self.control.stop_signal.send_replace(true);
+        self.control.accepting.store(false, Ordering::Release);
+        let publication = self
+            .control
+            .publication
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(publication) = publication {
+            publication.withdraw();
         }
+        // 长任务持有 RPC 锁时不等待它自然结束；撤销能力后直接终止进程。
+        if let Ok(mut io) = self.io.try_lock() {
+            let _ = self
+                .exchange(&mut io, "stop", Value::Null, Some(STOP_TIMEOUT))
+                .await;
+        }
+        self.terminate().await;
     }
 }
 
@@ -226,6 +411,8 @@ impl ExtensionHost {
             peer_id,
             manifest_dir,
             database_url: None,
+            jobs: None,
+            sources: None,
             inner: Arc::new(Mutex::new(HostState::default())),
         }
     }
@@ -233,6 +420,16 @@ impl ExtensionHost {
     /// 将执行端的已准入连接能力显式传给可信插件。不会写入manifest或状态响应。
     pub fn with_database_url(mut self, database_url: String) -> Self {
         self.database_url = Some(database_url.into());
+        self
+    }
+
+    pub fn with_jobs(mut self, jobs: JobRegistry) -> Self {
+        self.jobs = Some(jobs);
+        self
+    }
+
+    pub fn with_sources(mut self, sources: SourceRuntime) -> Self {
+        self.sources = Some(sources);
         self
     }
 
@@ -367,9 +564,10 @@ impl ExtensionHost {
             .participation_set_enabled(name, self.peer_id, true)
             .await?;
         self.clear_local_stop(name, &mut state).await?;
+        let attempted = self.core.participation_get(name, self.peer_id).await?;
         if let Err(error) = self.start_locked(name, &mut state).await {
             state.errors.insert(name.into(), public_error(&error));
-            if let Some(selected) = self.core.participation_get(name, self.peer_id).await? {
+            if let Some(selected) = attempted {
                 state.failed_versions.insert(name.into(), selected.version);
             }
             return Err(error);
@@ -393,8 +591,8 @@ impl ExtensionHost {
                 "当前 Peer 未启用 rust_stdio 精确选择".into(),
             ));
         }
-        if let Some(running) = state.running.get_mut(name) {
-            if running.process.child.try_wait()?.is_none() {
+        if let Some(running) = state.running.get(name) {
+            if running.process.is_alive() {
                 if running.manifest.version.to_string() == selected.version {
                     return Ok(());
                 }
@@ -403,20 +601,22 @@ impl ExtensionHost {
             state.running.remove(name);
         }
         let manifest = self.read_installed(name, &selected.version).await?;
-        let mut process = Process::spawn(
-            &self
-                .installed_dir(name, &selected.version)?
-                .join(&manifest.executable),
-            self.database_url.as_deref(),
-        )
-        .await?;
+        let process = Arc::new(
+            Process::spawn(
+                &self
+                    .installed_dir(name, &selected.version)?
+                    .join(&manifest.executable),
+                self.database_url.as_deref(),
+            )
+            .await?,
+        );
         let result: Result<Descriptor> = async {
             let descriptor: Descriptor = serde_json::from_value(
                 process
                     .call(
                         "initialize",
                         json!({"host_sdk_version":inkcre_extension_sdk::SDK_VERSION}),
-                        CALL_TIMEOUT,
+                        Some(CALL_TIMEOUT),
                     )
                     .await?,
             )?;
@@ -430,6 +630,7 @@ impl ExtensionHost {
             if !descriptor.config_schema.is_object() {
                 return Err(Error::Invalid("config schema 必须为对象".into()));
             }
+            descriptor.capabilities.validate()?;
             // schema 描述已验证的精确产物，不能依赖成功 start 才能编辑必填配置。
             if !self
                 .core
@@ -456,7 +657,7 @@ impl ExtensionHost {
                 state: shared.state,
             };
             process
-                .call("start", serde_json::to_value(context)?, CALL_TIMEOUT)
+                .call("start", serde_json::to_value(context)?, Some(CALL_TIMEOUT))
                 .await?;
             let current = self
                 .core
@@ -466,6 +667,17 @@ impl ExtensionHost {
             if !same_selection(&current, &manifest) || !current.enabled {
                 return Err(Error::Conflict(
                     "启动期间 selection 或 enabled 已改变".into(),
+                ));
+            }
+            adapters::publish(self, &manifest, &descriptor, &process).await?;
+            let current = self
+                .core
+                .participation_get(name, self.peer_id)
+                .await?
+                .ok_or_else(|| Error::Conflict("能力发布期间参与记录已移除".into()))?;
+            if !same_selection(&current, &manifest) || !current.enabled {
+                return Err(Error::Conflict(
+                    "能力发布期间 selection 或 enabled 已改变".into(),
                 ));
             }
             Ok(descriptor)
@@ -532,7 +744,7 @@ impl ExtensionHost {
         self.reconcile_locked(&mut state).await?;
         let running = state
             .running
-            .get_mut(name)
+            .get(name)
             .ok_or_else(|| Error::Conflict("扩展尚未运行".into()))?;
         if !running
             .descriptor
@@ -542,26 +754,37 @@ impl ExtensionHost {
         {
             return Err(Error::Invalid("扩展未声明此方法".into()));
         }
-        let result = running
-            .process
+        let process = running.process.clone();
+        let loaded_version = running.manifest.version.to_string();
+        drop(state);
+        let result = process
             .call(
                 "invoke",
                 serde_json::to_value(InvokeParams {
                     method: method.into(),
                     params,
                 })?,
-                CALL_TIMEOUT,
+                Some(CALL_TIMEOUT),
             )
             .await;
         if let Err(error) = &result
-            && !matches!(error, Error::Remote(_))
+            && !matches!(error, Error::Remote(_) | Error::QueueTimeout)
         {
-            if let Some(mut running) = state.running.remove(name) {
-                running.process.terminate().await;
-            }
-            state.errors.insert(name.into(), public_error(error));
-            if let Some(selected) = self.core.participation_get(name, self.peer_id).await? {
-                state.failed_versions.insert(name.into(), selected.version);
+            let mut state = self.inner.lock().await;
+            if state
+                .running
+                .get(name)
+                .is_some_and(|running| Arc::ptr_eq(&running.process, &process))
+            {
+                state.running.remove(name);
+                process.terminate().await;
+                state.errors.insert(name.into(), public_error(error));
+                if let Some(selected) = self.core.participation_get(name, self.peer_id).await?
+                    && selected.version == loaded_version
+                    && selected.distribution.as_deref() == Some(inkcre_extension_sdk::DISTRIBUTION)
+                {
+                    state.failed_versions.insert(name.into(), selected.version);
+                }
             }
         }
         result
@@ -612,20 +835,28 @@ impl ExtensionHost {
         for name in names {
             let selected = self.core.participation_get(&name, self.peer_id).await?;
             let locally_disabled = self.locally_disabled(&name, state).await?;
-            let running = state.running.get_mut(&name).ok_or(Error::NotFound)?;
-            let exited = running.process.child.try_wait()?.is_some();
+            let running = state.running.get(&name).ok_or(Error::NotFound)?;
+            let exited = !running.process.is_alive();
+            let recoverable_stop = running.process.control.restartable.load(Ordering::Acquire);
+            let failed_version = selected
+                .as_ref()
+                .filter(|selected| !recoverable_stop && same_selection(selected, &running.manifest))
+                .map(|selected| selected.version.clone());
             let stale = locally_disabled
                 || !selected
                     .as_ref()
                     .is_some_and(|p| p.enabled && same_selection(p, &running.manifest));
             if exited || stale {
-                if let Some(mut running) = state.running.remove(&name) {
+                if let Some(running) = state.running.remove(&name) {
                     running.process.stop().await;
                 }
-                if exited {
+                if exited && recoverable_stop {
+                    state.errors.remove(&name);
+                    state.failed_versions.remove(&name);
+                } else if exited {
                     state.errors.insert(name.clone(), "扩展进程已退出".into());
-                    if let Some(selected) = selected {
-                        state.failed_versions.insert(name, selected.version);
+                    if let Some(version) = failed_version {
+                        state.failed_versions.insert(name, version);
                     }
                 }
             }
@@ -677,7 +908,10 @@ impl ExtensionHost {
     async fn status_locked(&self, name: &str, state: &mut HostState) -> Result<ExtensionStatus> {
         let selected = self.core.participation_get(name, self.peer_id).await?;
         let locally_disabled = self.locally_disabled(name, state).await?;
-        let running = state.running.get(name);
+        let running = state
+            .running
+            .get(name)
+            .filter(|running| running.process.is_alive());
         Ok(ExtensionStatus {
             name: name.into(),
             peer_id: self.peer_id,
@@ -696,7 +930,7 @@ impl ExtensionHost {
     /// 退出仅撤销运行实例，保留可恢复的 enabled intent 与共享业务数据。
     pub async fn shutdown(&self) {
         let mut state = self.inner.lock().await;
-        for (_, mut running) in state.running.drain() {
+        for (_, running) in state.running.drain() {
             running.process.stop().await;
         }
     }
@@ -738,7 +972,7 @@ impl ExtensionHost {
         }
         .await;
         // 即便本机磁盘或共享连接失败，也先停止已经运行的原生进程。
-        if let Some(mut running) = state.running.remove(name) {
+        if let Some(running) = state.running.remove(name) {
             running.process.stop().await;
         }
         persisted

@@ -54,7 +54,8 @@ class Journey:
             raise RuntimeError("需要 DATABASE_URL/JWT_SECRET 或 --config-json")
         self.peer = str(uuid.uuid4())
         self.env.update({"INKCRE_PEER_ID": self.peer, "INKCRE_PEER_NAME": "Rust acceptance",
-                         "INKCRE_STATE_DIR": str(directory / "state"), "RUST_LOG": "warn"})
+                         "INKCRE_STATE_DIR": str(directory / "state"), "RUST_LOG": "warn",
+                         "INKCRE_NO_WORKER": "true", "INKCRE_NO_CRON": "true"})
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]

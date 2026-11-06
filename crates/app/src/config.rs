@@ -54,6 +54,17 @@ pub struct ServeArgs {
     pub lease_seconds: u32,
     #[arg(long, env = "INKCRE_REQUEST_TIMEOUT_SECONDS", default_value_t = 30)]
     pub request_timeout_seconds: u64,
+    /// 停止本机执行 Job；仍可提交给其他具备能力的 Peer
+    #[arg(long, env = "INKCRE_NO_WORKER")]
+    pub no_worker: bool,
+    /// 只处理本进程显式唤醒的 Job，不扫描共享 pending 队列
+    #[arg(long, env = "INKCRE_NO_WORKER_DISCOVERY")]
+    pub no_worker_discovery: bool,
+    #[arg(long, env = "INKCRE_WORKER_CONCURRENCY", default_value_t = 4)]
+    pub worker_concurrency: usize,
+    /// 停止本机自动 materialize Cron；保留按 ID 的明确操作入口
+    #[arg(long, env = "INKCRE_NO_CRON")]
+    pub no_cron: bool,
 }
 
 #[derive(Args)]

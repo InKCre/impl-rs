@@ -1,5 +1,6 @@
 use crate::{Core, Error, Job, JobInput, JobStatus, JobType, Page, Result};
 use serde_json::Value;
+use sqlx::{Postgres, Transaction};
 
 const JOB_COLUMNS: &str = "id,type,parameters,state,timeout_seconds,status::text AS status,created_at,started_at,closed_at,abort_requested,submission_traceparent,submission_tracestate";
 
@@ -41,6 +42,17 @@ impl Core {
     }
     /// Accept any catalogued exact type, independently of local handler availability.
     pub async fn job_submit(&self, input: JobInput) -> Result<Job> {
+        let mut tx = self.pool().begin().await?;
+        let job = Self::job_submit_in(&mut tx, input).await?;
+        tx.commit().await?;
+        Ok(job)
+    }
+
+    /// Compose command creation with another business write in the same transaction.
+    pub(crate) async fn job_submit_in(
+        tx: &mut Transaction<'_, Postgres>,
+        input: JobInput,
+    ) -> Result<Job> {
         if !input.parameters.is_object() {
             return Err(Error::InvalidInput(
                 "job parameters must be an object".into(),
@@ -54,10 +66,10 @@ impl Core {
                 "submission trace values exceed capacity".into(),
             ));
         }
-        let mut tx = self.pool().begin().await?;
         let job_type:JobType=sqlx::query_as("SELECT id,description,parameters_schema,default_timeout_seconds FROM inkcre.job_types WHERE id=$1 FOR SHARE")
-            .bind(&input.type_).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound("job type"))?;
+            .bind(&input.type_).fetch_optional(&mut **tx).await?.ok_or(Error::NotFound("job type"))?;
         crate::models::validate_json(&job_type.parameters_schema, &input.parameters)?;
+        crate::source::validate_source_job_in(tx, &input.type_, &input.parameters).await?;
         let timeout = input
             .timeout_seconds
             .unwrap_or(job_type.default_timeout_seconds);
@@ -65,9 +77,70 @@ impl Core {
             return Err(Error::InvalidInput("job timeout must be positive".into()));
         }
         let job=sqlx::query_as(&format!("INSERT INTO inkcre.jobs(type,parameters,timeout_seconds,submission_traceparent,submission_tracestate) VALUES($1,$2,$3,$4,$5) RETURNING {JOB_COLUMNS}"))
-            .bind(input.type_).bind(input.parameters).bind(timeout).bind(input.submission_traceparent).bind(input.submission_tracestate).fetch_one(&mut *tx).await?;
-        tx.commit().await?;
+            .bind(input.type_).bind(input.parameters).bind(timeout).bind(input.submission_traceparent).bind(input.submission_tracestate).fetch_one(&mut **tx).await?;
         Ok(job)
+    }
+
+    /// Discover only exact locally registered contracts. Cursor rotation avoids
+    /// starving later Jobs behind commands eligible on a different Peer.
+    pub async fn jobs_pending_for(
+        &self,
+        types: &[String],
+        after: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<Job>> {
+        crate::graph::page_limit(limit)?;
+        if types.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(sqlx::query_as(&format!("SELECT {JOB_COLUMNS} FROM inkcre.jobs WHERE status='pending' AND type=ANY($1::text[]) AND ($2::bigint IS NULL OR id>$2) ORDER BY id LIMIT $3"))
+            .bind(types).bind(after).bind(limit).fetch_all(self.pool()).await?)
+    }
+
+    pub async fn job_state(&self, id: i64) -> Result<Value> {
+        sqlx::query_scalar("SELECT state FROM inkcre.jobs WHERE id=$1")
+            .bind(id)
+            .fetch_optional(self.pool())
+            .await?
+            .ok_or(Error::NotFound("job"))
+    }
+
+    pub async fn job_set_state(&self, id: i64, state: &Value) -> Result<()> {
+        if !state.is_object() {
+            return Err(Error::InvalidInput("job state must be an object".into()));
+        }
+        if sqlx::query("UPDATE inkcre.jobs SET state=$2 WHERE id=$1 AND status='running'")
+            .bind(id)
+            .bind(state)
+            .execute(self.pool())
+            .await?
+            .rows_affected()
+            == 0
+        {
+            return Err(Error::Conflict("job is no longer running".into()));
+        }
+        Ok(())
+    }
+
+    pub async fn job_patch_state(&self, id: i64, patch: &Value) -> Result<()> {
+        if !patch.is_object() {
+            return Err(Error::InvalidInput(
+                "job state patch must be an object".into(),
+            ));
+        }
+        if sqlx::query(
+            "UPDATE inkcre.jobs SET state=state || $2::jsonb WHERE id=$1 AND status='running'",
+        )
+        .bind(id)
+        .bind(patch)
+        .execute(self.pool())
+        .await?
+        .rows_affected()
+            == 0
+        {
+            return Err(Error::Conflict("job is no longer running".into()));
+        }
+        Ok(())
     }
     pub async fn job_get(&self, id: i64) -> Result<Option<Job>> {
         Ok(sqlx::query_as(&format!(
@@ -130,6 +203,13 @@ impl Core {
             .await?
             .ok_or(Error::NotFound("job"))
     }
+    /// Explicit deployment-wide maintenance, never a normal worker discovery action.
+    ///
+    /// The protocol carries no execution owner, so an expired row alone cannot prove
+    /// that its handler or cancellation cleanup has stopped. Confirm potentially
+    /// affected executors have exited before calling this method. It does not cancel
+    /// handlers. Prefer closing one known Job with `job_finish` and its latest state
+    /// after verifying that Job's executor has stopped.
     pub async fn jobs_expire_overdue(&self) -> Result<u64> {
         Ok(sqlx::query("UPDATE inkcre.jobs SET status='timed_out' WHERE status='running' AND started_at+timeout_seconds*interval '1 second'<=statement_timestamp()")
             .execute(self.pool()).await?.rows_affected())

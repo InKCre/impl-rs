@@ -14,7 +14,13 @@ cp .env.example .env
 
 填入 `.env` 的 `DATABASE_URL` 和 `JWT_SECRET` 后，执行 `target/debug/inkcre db-check` 查看只读准入结果，再用 `target/debug/inkcre serve` 启动。默认监听 `127.0.0.1:8000`，受保护接口使用 `Authorization: Bearer <JWT>`；`inkcre token` 可签发共享 Peer 凭据。
 
-`crates/core` 提供数据库与图数据 SDK，`crates/app` 提供 HTTP 入口和命令行。扩展通过 `rust_stdio` executable 动态加载，SDK 位于 `vendor/ext-reg/runtimes/core-rs`。静态检查执行 `bash scripts/check.sh`；当前阶段不包含自动化测试。
+`serve` 默认启动 Job worker 和 Cron 调度，可能领取共享队列中本机能执行的命令，并为共享的到期 Cron 创建 Job。只接入 HTTP、暂不参与后台工作时使用 `inkcre serve --no-worker --no-cron`；开关的范围及恢复后果见 [运行说明](docs/40-deployment/runtime.md)。
+
+`crates/core` 已提供图数据、Resolver/Storage registry、typed read、事务化 graph draft、Job worker、Source 和 Cron；`crates/app` 组合这些能力。既有 [`inkcre/rss` 扩展的 Rust 分发](extensions/rss/README.md) 通过独立 `rust_stdio` executable 执行 RSS/Atom 采集、正文提取和附件保存，并以原有 canonical 图供 Resolver 读取。它采用严格 XML 解析，不复刻 Python feedparser 对损坏文档的容错。
+
+实现边界分别见 [知识与 Storage](docs/30-unit-tdd/knowledge-runtime.md)、[Job 与 Cron](docs/30-unit-tdd/job-runtime.md)、[RSS Source](docs/30-unit-tdd/rss-extension.md) 和 [HTTP API](docs/30-unit-tdd/http-api.md)。扩展 SDK 位于 `vendor/ext-reg/runtimes/core-rs`，本机可信 manifest 管理精确 executable；Rust 公共 Registry 上传、下载尚未提供。
+
+静态检查执行 `bash scripts/check.sh`；当前阶段不包含自动化测试。显式运行 `scripts/accept_runtime.py` 可验收知识入口、真实 RSS/Atom worker、取消恢复与 Cron，**仅允许空的独占 disposable development 数据库**，不能指向已有资料的共享部署；准备方式见运行说明。
 
 数据库 schema 与 migration 由 `impl-py` 维护；此仓库不运行迁移。Rust 的 `/api/v1` 是初始接口，不能当作 Python 全量业务能力的等价替换。
 

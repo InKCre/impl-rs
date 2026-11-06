@@ -20,9 +20,6 @@ fn validate_block(input: &BlockInput) -> Result<()> {
     if input.resolver.trim().is_empty() {
         return Err(Error::InvalidInput("resolver must not be empty".into()));
     }
-    if input.storage.is_some_and(|id| id <= 0) {
-        return Err(Error::InvalidInput("storage must be positive".into()));
-    }
     Ok(())
 }
 
@@ -103,9 +100,6 @@ impl Core {
     pub async fn block_patch(&self, id: i32, patch: BlockPatch) -> Result<Block> {
         if patch.resolver.as_ref().is_some_and(|x| x.trim().is_empty()) {
             return Err(Error::InvalidInput("resolver must not be empty".into()));
-        }
-        if patch.storage.flatten().is_some_and(|x| x <= 0) {
-            return Err(Error::InvalidInput("storage must be positive".into()));
         }
         sqlx::query_as(&format!("UPDATE inkcre.blocks SET storage=CASE WHEN $2 THEN $3 ELSE storage END,resolver=COALESCE($4,resolver),content=COALESCE($5,content) WHERE id=$1 RETURNING {BLOCK_COLUMNS}"))
             .bind(id).bind(patch.storage.is_some()).bind(patch.storage.flatten()).bind(patch.resolver).bind(patch.content).fetch_optional(self.pool()).await?.ok_or(Error::NotFound("block"))

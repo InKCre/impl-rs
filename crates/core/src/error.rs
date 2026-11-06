@@ -17,6 +17,8 @@ pub enum Error {
     Database(#[source] sqlx::Error),
     #[error("this runtime cannot execute the requested capability: {0}")]
     Unsupported(String),
+    #[error("runtime capability is unavailable: {0}")]
+    Unavailable(&'static str),
 }
 
 impl From<sqlx::Error> for Error {

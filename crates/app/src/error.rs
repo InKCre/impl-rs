@@ -54,8 +54,51 @@ impl From<inkcre_core::Error> for ApiError {
                 (StatusCode::SERVICE_UNAVAILABLE, "database_unavailable")
             }
             Error::Unsupported(_) => (StatusCode::NOT_IMPLEMENTED, "unsupported"),
+            Error::Unavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "capability_unavailable"),
         };
         Self::new(status, code, error.to_string())
+    }
+}
+
+impl From<inkcre_core::knowledge::Error> for ApiError {
+    fn from(error: inkcre_core::knowledge::Error) -> Self {
+        use inkcre_core::knowledge::Error;
+        if let Error::Core(error) = error {
+            return error.into();
+        }
+        let (status, code) = match &error {
+            Error::UnknownResolver(_) | Error::UnknownStorage(_) | Error::Unsupported(_) => {
+                (StatusCode::NOT_IMPLEMENTED, "unsupported")
+            }
+            Error::UnknownMethod(_) => (StatusCode::NOT_FOUND, "unknown_method"),
+            Error::InvalidContent { .. } | Error::InvalidInput(_) => {
+                (StatusCode::UNPROCESSABLE_ENTITY, "invalid_content")
+            }
+            Error::Conflict(_) => (StatusCode::CONFLICT, "capability_conflict"),
+            Error::Storage(_) => (StatusCode::BAD_GATEWAY, "storage_unavailable"),
+            Error::Limit(_) => (StatusCode::PAYLOAD_TOO_LARGE, "capability_limit"),
+            Error::Core(_) => unreachable!(),
+        };
+        Self::new(status, code, error.to_string())
+    }
+}
+
+pub struct ApiBytes(pub axum::body::Bytes);
+
+impl<S: Send + Sync> FromRequest<S> for ApiBytes {
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        axum::body::Bytes::from_request(request, state)
+            .await
+            .map(Self)
+            .map_err(|error| {
+                ApiError::new(
+                    error.status(),
+                    "invalid_body",
+                    "unable to read request bytes",
+                )
+            })
     }
 }
 

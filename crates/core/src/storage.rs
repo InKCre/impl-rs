@@ -1,11 +1,5 @@
 use crate::{Core, Error, HydratedContent, Result, Storage};
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-#[derive(Serialize, Deserialize)]
-struct PostgreSqlPointer {
-    blob_id: Uuid,
-}
 
 impl Core {
     pub async fn storages(&self) -> Result<Vec<Storage>> {
@@ -62,28 +56,12 @@ impl Core {
     pub fn postgresql_blob_pointer(id: Uuid) -> String {
         serde_json::json!({"blob_id":id}).to_string()
     }
-    /// Read actual content without invoking a Resolver. External storages need a handler.
+    /// Hydrate through this Core's exact Storage registry without loading a Resolver.
     pub async fn block_content(&self, id: i32) -> Result<HydratedContent> {
         let block = self.block_get(id).await?.ok_or(Error::NotFound("block"))?;
-        let Some(storage_id) = block.storage else {
-            return Ok(HydratedContent::Text(block.content));
-        };
-        let storage = self
-            .storage_get(storage_id)
-            .await?
-            .ok_or(Error::NotFound("storage"))?;
-        if storage.type_ != "postgresql_binary" {
-            return Err(Error::Unsupported(format!(
-                "storage handler {} is not registered",
-                storage.type_
-            )));
-        }
-        let pointer: PostgreSqlPointer = serde_json::from_str(&block.content)
-            .map_err(|_| Error::InvalidInput("invalid PostgreSQL storage pointer".into()))?;
-        let data = self
-            .blob_read(pointer.blob_id)
-            .await?
-            .ok_or(Error::NotFound("storage blob"))?;
-        Ok(HydratedContent::Bytes(data))
+        self.knowledge()
+            .actual_content(&block)
+            .await
+            .map_err(Into::into)
     }
 }

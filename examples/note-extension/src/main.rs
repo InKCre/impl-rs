@@ -41,6 +41,7 @@ impl Extension for Notes {
             protocol_version: PROTOCOL_VERSION,
             config_schema: json!({"type":"object", "additionalProperties":false}),
             methods: vec!["capture_text".into(), "get_block".into()],
+            capabilities: Default::default(),
         }
     }
 

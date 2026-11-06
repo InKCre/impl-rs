@@ -6,11 +6,15 @@ mod error;
 mod extension_store;
 mod graph;
 mod jobs;
+pub mod knowledge;
 pub mod models;
 mod peer;
 mod storage;
 
+pub mod cron;
 pub mod extension;
+pub mod source;
+pub mod worker;
 
 pub use error::{Error, Result};
 pub use graph::GraphTransaction;
@@ -18,12 +22,13 @@ pub use models::*;
 pub use sqlx::PgPool;
 
 use sqlx::postgres::PgPoolOptions;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 /// A cloneable, bounded connection pool. Identity belongs to the embedding Peer.
 #[derive(Clone)]
 pub struct Core {
     pool: PgPool,
+    pub(crate) knowledge_registry: Arc<knowledge::Registry>,
 }
 
 impl Core {
@@ -40,14 +45,22 @@ impl Core {
             .acquire_timeout(Duration::from_secs(15))
             .connect(database_url)
             .await?;
-        let core = Self { pool };
+        let core = Self::from_pool(pool);
         core.admission().await?;
         Ok(core)
     }
 
     /// Embed an existing pool. Call `admission` before serving requests.
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            knowledge_registry: Arc::new(knowledge::Registry::default()),
+        }
+    }
+
+    /// 当前嵌入实例的知识能力；Core clones 共享注册，独立 Core 不共享运行状态。
+    pub fn knowledge(&self) -> knowledge::Knowledge {
+        knowledge::Knowledge::new(self.clone())
     }
 
     pub fn pool(&self) -> &PgPool {
