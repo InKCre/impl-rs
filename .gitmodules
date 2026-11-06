@@ -1,0 +1,6 @@
+[submodule "docs/_shared"]
+	path = docs/_shared
+	url = https://github.com/InKCre/docs.git
+[submodule "vendor/ext-reg"]
+	path = vendor/ext-reg
+	url = https://github.com/InKCre/ext-reg.git

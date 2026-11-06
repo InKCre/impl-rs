@@ -1,0 +1,9 @@
+/target/
+/.runtime/
+/tasks/
+/.env
+/.env.*
+!/.env.example
+/AGENTS.local.md
+.DS_Store
+__pycache__/

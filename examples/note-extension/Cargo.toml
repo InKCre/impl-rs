@@ -1,0 +1,18 @@
+[package]
+name = "inkcre-note-extension"
+description = "使用 Rust core SDK 保存文本的原生扩展示例"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+async-trait.workspace = true
+inkcre-core.workspace = true
+inkcre-extension-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

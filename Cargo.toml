@@ -1,0 +1,43 @@
+[workspace]
+members = ["crates/core", "crates/app", "examples/note-extension"]
+exclude = ["vendor/ext-reg/runtimes/core-rs"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+repository = "https://github.com/InKCre/impl-rs"
+
+[workspace.dependencies]
+inkcre-core = { path = "crates/core", version = "0.1.0" }
+inkcre-extension-sdk = { path = "vendor/ext-reg/runtimes/core-rs", version = "0.1.0" }
+async-trait = "0.1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
+jsonwebtoken = { version = "9", default-features = false }
+jsonschema = { version = "0.29", default-features = false }
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-native-roots", "postgres", "uuid", "chrono", "json", "derive"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["serde", "v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"

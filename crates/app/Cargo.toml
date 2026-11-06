@@ -1,0 +1,28 @@
+[package]
+name = "inkcre-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "InKCre Rust 单一可执行 HTTP Peer 应用"
+
+[[bin]]
+name = "inkcre"
+path = "src/main.rs"
+
+[dependencies]
+inkcre-core.workspace = true
+axum.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+jsonwebtoken.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

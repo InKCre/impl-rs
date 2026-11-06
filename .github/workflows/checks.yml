@@ -1,0 +1,27 @@
+name: impl-rs checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: impl-rs-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: impl-rs checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact source and SDK
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.93.0 --profile minimal --component rustfmt --component clippy
+      - name: Check workspace and independent SDK
+        run: bash scripts/check.sh
