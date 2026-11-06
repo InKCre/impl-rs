@@ -24,8 +24,8 @@
 - 配置文件是数据，不可作为 shell 脚本 source。日志、错误和任务证据不包含口令、JWT 或完整数据库连接串。
 - 扩展加载不能依赖 Rust 的不稳定动态库 ABI；与 SDK 的兼容性必须有明确协议依据。
 - 禁止安装、引入、调用或使用 LiteLLM。
-- 用户决定 impl-rs 许可证留待发布前确定；本仓当前不声明许可，不自行添加。依赖和 ext-reg SDK 的既有许可证继续保留。
+- 用户决定公开仓库后再补充 impl-rs 许可证；本仓当前不声明许可，不自行添加。依赖和 ext-reg SDK 的既有许可证继续保留。
 - 非平凡任务使用 svc-workflow、svc-specs、svc-task-packet、svc-verification。合适的独立工作按照 svc-agent-collaboration 委派。
-- 提交与 GitHub 流程遵循 [组织治理](https://github.com/InKCre/.github/blob/main/GOVERNANCE.md)，结合当前用户对提交、分支与发布的明确授权执行。
+- 初始化阶段用户允许直接提交、推送 main 和公开仓库；CI 对 main push 与 PR 运行静态检查。其他提交与 GitHub 流程遵循 [组织治理](https://github.com/InKCre/.github/blob/main/GOVERNANCE.md)及当前明确授权。
 
 若存在 `AGENTS.local.md`，在本文件后读取。

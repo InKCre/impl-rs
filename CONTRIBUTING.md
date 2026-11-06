@@ -6,7 +6,7 @@
 
 本初始化阶段不添加自动化测试。完整静态检查执行 `bash scripts/check.sh`，包括格式、编译、Clippy 和 rustdoc，也检查独立 SDK。CI 调用同一入口。关键端到端验收显式执行，不能对共享部署进行破坏性初始化。依赖变化后使用 `cargo generate-lockfile` 更新锁文件，确认后保留，不在正常检查时隐式更新。
 
-功能开发使用 `feat/` 或 `hotfix/` 分支。仅在用户明确要求后提交，提交格式为 `feat|fix|ref|docs|chore(scope): 中文摘要`，正文按需列出关键变化。PR、issue 和文档使用中文。组织 [贡献指南](https://github.com/InKCre/.github/blob/main/CONTRIBUTING.md) 和 [验证政策](https://github.com/InKCre/.github/blob/main/TESTING.md) 继续适用；本阶段用户明确要求不编写自动化测试。
+初始化阶段用户允许直接提交并推送 `main`；需要隔离时使用 `feat/` 或 `hotfix/` 分支。提交只包含当前任务改动，格式为 `feat|fix|ref|docs|chore(scope): 中文摘要`，正文按需列出关键变化。PR、issue 和文档使用中文。组织 [贡献指南](https://github.com/InKCre/.github/blob/main/CONTRIBUTING.md) 和 [验证政策](https://github.com/InKCre/.github/blob/main/TESTING.md) 继续适用；本阶段用户明确要求不编写自动化测试。
 
 扩展 SDK 的通用契约在 `ext-reg` 维护。共享 Hub 文档通过 Hub 仓库修改并更新子模块指针，不直接编辑 `docs/_shared`。
 

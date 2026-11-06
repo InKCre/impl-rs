@@ -18,4 +18,4 @@ cp .env.example .env
 
 数据库 schema 与 migration 由 `impl-py` 维护；此仓库不运行迁移。Rust 的 `/api/v1` 是初始接口，不能当作 Python 全量业务能力的等价替换。
 
-impl-rs 的许可证由项目所有者留待发布前确定，当前不声明公开分发许可。ext-reg Rust SDK 保留其自身 AGPL-3.0-only 许可证；发布时需要同时核对依赖许可。
+impl-rs 的许可证由项目所有者稍后确定，当前仓库尚未设置许可证。ext-reg Rust SDK 保留其自身 AGPL-3.0-only 许可证。
