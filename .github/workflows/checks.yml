@@ -42,3 +42,4 @@ jobs:
           path: .runtime/inkcre-linux-x86_64.tar.gz
           if-no-files-found: error
           compression-level: 0
+          include-hidden-files: true
