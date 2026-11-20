@@ -29,7 +29,7 @@ impl Document {
                     .and_then(|s| s.strip_suffix('}'))
                     .map(|name| {
                         json!({
-                            "name":name,"in":"path","required":true,"schema":{"type":"string"}
+                            "name":name,"in":"path","required":true,"schema":path_schema(name)
                         })
                     })
             })
@@ -64,6 +64,34 @@ impl Document {
         self.operation(path, "patch", Some(schema), 200);
     }
 
+    /// Query extraction is route-owned in Axum, rather than embedded in body DTOs.
+    /// Keep these parameter declarations next to the public operation registrations;
+    /// request bodies continue to derive from the actual input types.
+    fn query(&mut self, path: &str, method: &str, name: &str, schema: Value) {
+        let parameter = json!({"name":name,"in":"query","required":false,"schema":schema,"style":"form","explode":true});
+        self.paths[path][method]["parameters"]
+            .as_array_mut()
+            .expect("registered operation")
+            .push(parameter);
+    }
+    fn page(&mut self, path: &str, cursor: Value) {
+        self.query(
+            path,
+            "get",
+            "limit",
+            nullable(json!({"type":"integer","exclusiveMinimum":0})),
+        );
+        self.query(path, "get", "cursor", nullable(cursor));
+    }
+
+    fn location(&mut self, path: &str, status: u16) {
+        self.paths[path]["post"]["responses"][status.to_string()]["headers"]["Location"] = json!({
+            "description":"Created resource URI, resolved against this server origin",
+            "required":true,
+            "schema":{"type":"string","format":"uri-reference"}
+        });
+    }
+
     fn finish(mut self) -> Value {
         json!({
             "openapi":"3.1.0",
@@ -83,7 +111,9 @@ fn build() -> Value {
     let mut doc = Document::new();
     doc.json::<core::BlockInput>("/blocks", "post", 201);
     doc.patch::<core::BlockInput>("/blocks/{block_id}", &[]);
-    doc.json::<crate::routes::RelationRequest>("/relations", "post", 200);
+    // POST accepts the persisted-endpoint producer form (including the runtime's
+    // from_/to_ aliases). PATCH publishes the canonical long-name REST DTO.
+    doc.json::<core::RelationInput>("/relations", "post", 200);
     doc.patch::<crate::routes::RelationRequest>("/relations/{relation_id}", &[]);
     doc.json::<crate::entity_routes::CanonicalGraphForm>("/graph", "post", 200);
     doc.json::<crate::entity_routes::EntityForm>("/entities/get", "post", 200);
@@ -100,7 +130,13 @@ fn build() -> Value {
     doc.json::<source::SourceInput>("/sources", "post", 201);
     doc.patch::<source::SourceInput>("/sources/{source_id}", &["type"]);
     for command in ["collect", "backfill"] {
-        doc.json::<Object>(&format!("/sources/{{source_id}}/{command}"), "post", 201);
+        let path = format!("/sources/{{source_id}}/{command}");
+        doc.json::<Object>(&path, "post", 201);
+        // source_routes::collect supplies {} when no body is sent; backfill is
+        // required, matching the frozen Python command admission contract.
+        if command == "collect" {
+            doc.paths[&path]["post"]["requestBody"]["required"] = json!(false);
+        }
     }
     doc.json::<cron::CronInput>("/crons", "post", 201);
     doc.patch::<cron::CronInput>("/crons/{cron_id}", &[]);
@@ -148,6 +184,7 @@ fn build() -> Value {
         "/job-types/{type_id}",
         "/crons",
         "/crons/{cron_id}",
+        "/cron/config",
         "/configs",
         "/configs/{key}",
         "/config-schemas",
@@ -201,7 +238,150 @@ fn build() -> Value {
         None,
         200,
     );
+    // Public probes do not require Peer JWT. /heartbeat is an intentionally hidden alias.
+    doc.operation("/livez", "get", None, 200);
+    doc.paths["/livez"]["get"]["security"] = json!([]);
+    doc.paths["/livez"]["get"]["responses"]["200"]["description"] =
+        json!("Process liveness; status is ok");
+    doc.operation("/readyz", "get", None, 200);
+    doc.paths["/readyz"]["get"]["security"] = json!([]);
+    doc.paths["/readyz"]["get"]["responses"] = json!({
+        "200":{"description":"Ready; includes observed native PostgreSQL contract, profile, migration, runtime and lease diagnostics"},
+        "503":{"description":"Not ready; diagnostics identify unavailable prerequisites"}
+    });
+    // Canonical writes in source_routes/routes/agent_routes (d55a929), plus
+    // Sink query's existing asynchronous Job response. Do not advertise a
+    // Location for writes whose actual controller does not emit one.
+    for (path, status) in [
+        ("/sources", 201),
+        ("/sources/{source_id}/collect", 201),
+        ("/sources/{source_id}/backfill", 201),
+        ("/jobs", 201),
+        ("/crons", 201),
+        ("/crons/{cron_id}/run", 201),
+        ("/agents", 201),
+        ("/sinks/{sink_id}/query", 202),
+    ] {
+        doc.location(path, status);
+    }
+    queries(&mut doc);
     doc.finish()
+}
+
+fn nullable(schema: Value) -> Value {
+    json!({"anyOf":[schema,{"type":"null"}]})
+}
+
+fn path_schema(name: &str) -> Value {
+    match name {
+        "peer_id" => json!({"type":"string","format":"uuid"}),
+        "block_id" | "relation_id" | "source_id" | "job_id" | "cron_id" | "agent_id"
+        | "sink_id" | "model_id" | "profile_id" => json!({"type":"integer"}),
+        _ => json!({"type":"string"}),
+    }
+}
+
+fn queries(doc: &mut Document) {
+    // Canonical list handlers in source/agent/ai/config/knowledge/extension routes
+    // and routes::resource_page omit a default limit to request all records.
+    for path in [
+        "/sources",
+        "/crons",
+        "/agents",
+        "/ai/models",
+        "/embedding-profiles",
+    ] {
+        doc.page(path, json!({"type":"integer"}));
+    }
+    for path in [
+        "/source-types",
+        "/job-types",
+        "/agent-tools",
+        "/resolvers",
+        "/resolvers/{resolver}/methods",
+        "/blocks/{block_id}/resolver/methods",
+        "/configs",
+        "/config-schemas",
+        "/extensions",
+    ] {
+        doc.page(path, json!({"type":"string"}));
+    }
+    doc.page("/peers", json!({"type":"string","format":"uuid"}));
+    // routes::JobPageQuery adds exact type/status filters and the canonical 20-row default.
+    doc.query(
+        "/jobs",
+        "get",
+        "limit",
+        json!({"type":"integer","exclusiveMinimum":0,"default":20}),
+    );
+    doc.query(
+        "/jobs",
+        "get",
+        "cursor",
+        nullable(json!({"type":"integer"})),
+    );
+    doc.query("/jobs", "get", "type", nullable(json!({"type":"string"})));
+    use inkcre_core::JobStatus;
+    doc.query("/jobs","get","status",nullable(json!({"type":"string","enum":[JobStatus::Pending,JobStatus::Running,JobStatus::Finished,JobStatus::Failed,JobStatus::TimedOut,JobStatus::Aborted]})));
+    // routes::RecentBlocksQuery and block_neighborhood's repeated query parser.
+    doc.query(
+        "/blocks/recent",
+        "get",
+        "num",
+        json!({"type":"integer","default":10}),
+    );
+    doc.query(
+        "/blocks/recent",
+        "get",
+        "resolver",
+        nullable(json!({"type":"string"})),
+    );
+    let path = "/blocks/{block_id}/neighborhood";
+    doc.query(
+        path,
+        "get",
+        "direction",
+        json!({"type":"string","enum":["in","out","both"],"default":"both"}),
+    );
+    doc.query(
+        path,
+        "get",
+        "contents",
+        json!({"type":"array","items":{"type":"string"}}),
+    );
+    doc.query(
+        path,
+        "get",
+        "limit",
+        json!({"type":"integer","minimum":1,"maximum":100,"default":20}),
+    );
+    doc.query(path, "get", "cursor", nullable(json!({"type":"integer"})));
+    // source_routes::CommandQuery; zero/negative values are rejected by Job admission.
+    for command in ["collect", "backfill"] {
+        doc.query(
+            &format!("/sources/{{source_id}}/{command}"),
+            "post",
+            "timeout_seconds",
+            nullable(json!({"type":"integer","exclusiveMinimum":0})),
+        );
+    }
+    // The peer-routing DTO is shared by the two retrieval controllers, and the
+    // extension management controller owns the same routing field independently.
+    for (path, method) in [
+        ("/retrieval/lexical", "post"),
+        ("/retrieval/semantic", "post"),
+        ("/extensions/{namespace}/{name}/selection", "post"),
+        ("/extensions/{namespace}/{name}/selection", "delete"),
+        ("/extensions/{namespace}/{name}/enable", "post"),
+        ("/extensions/{namespace}/{name}/disable", "post"),
+    ] {
+        doc.query(
+            path,
+            method,
+            "route_to_peer",
+            nullable(json!({"type":"string","format":"uuid"})),
+        );
+    }
 }
 
 pub async fn document() -> Json<Value> {

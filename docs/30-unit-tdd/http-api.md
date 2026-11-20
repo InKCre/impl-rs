@@ -1,6 +1,6 @@
 # HTTP API
 
-接入 Rust app 时阅读本文。一般业务路径同时支持根路径和 `/api/v1` 前缀，均要求 `Authorization: Bearer <JWT>`。扩展管理的两套路径及 MCP 的凭据单独说明。健康检查 `/health/live` 和 `/health/ready` 无需认证。JSON 错误形如 `{"error":{"code":"…","message":"…"}}`，数据库和插件原始错误不会直接返回。
+接入 Rust app 时阅读本文。一般业务路径同时支持根路径和 `/api/v1` 前缀，均要求 `Authorization: Bearer <JWT>`。扩展管理的两套路径及 MCP 的凭据单独说明。健康检查 `/livez` 和 `/readyz` 无需认证；`/health/live` 和 `/health/ready` 保留兼容结果。JSON 错误形如 `{"error":{"code":"…","message":"…"}}`，数据库和插件原始错误不会直接返回。
 
 ## 图数据
 
@@ -13,8 +13,8 @@
 | `GET /blocks/{id}/content` | inline 文本或已注册 Storage handler 读取的实际 bytes |
 | `GET /blocks/{id}/relations` | 关联 Relation 分页 |
 | `GET /relations/by_block/{id}` | 关联 Relation 数组，端点为 `from_block_id/to_block_id` |
-| `POST /relations` | `{from_block_id,to_block_id,content}`，201 返回 Relation。也接受原字段 `from_/to_` |
-| `GET/PATCH/DELETE /relations/{id}` | 读取、部分更新或删除 |
+| `POST /relations` | `{from_,to_,content}`，200 返回长名端点的 Relation；兼容接收 `from_block_id/to_block_id` |
+| `GET/PATCH/DELETE /relations/{id}` | 读取、部分更新或删除；PATCH 使用 `from_block_id/to_block_id/content` |
 | `GET /relations/{id}/neighborhood` | `{focal_relation,graph}`，含 Relation 与存在的端点 |
 | `POST /graph/neighborhood` | `{block_id,direction?,contents?,limit?,cursor?}` |
 | `GET /blocks/{id}/neighborhood` | `direction`、可重复的 `contents`、`limit`、`cursor`；返回 `focal_block/graph/next_cursor` |
@@ -27,7 +27,7 @@
 
 `direction` 为 `in/out/both`。`contents` 按 Relation content 精确过滤，空数组代表不过滤。根路径 POST 以 `status=found/not_found/limit_reached` 表示结果，找到路径时包含闭合 `graph` 和有序 `block_path/relation_path`。旧 GET 查询与 `/api/v1` 下的 POST 保留 `outcome`、`block_ids/relation_ids`。旧 GET 的 `contents` 使用 URL 编码的 JSON 字符串数组。PATCH 省略字段保持原值，Block storage 显式 null 可清空。
 
-普通 Block/Relation 读取不要求相应 Resolver 已加载。HTTP 创建或修改 Block 则会校验完整的新表示，要求本机 exact Resolver 和相应 Storage handler；未知 Resolver 不会退化为纯文本。`/content` 返回 `text/plain` 或 `application/octet-stream`，不返回 solved JSON。
+普通 Block/Relation 的根路径读取与写入遵循共享数据库协议，不要求相应 Resolver 已加载。需要本机校验表示时使用 `/graph/submit` 或 SDK Knowledge 写入；`/api/v1` 的兼容 Block 写入仍经本机 Knowledge 校验。`/content` 返回 `text/plain` 或 `application/octet-stream`，不返回 solved JSON。
 
 例如创建普通文本：
 
@@ -102,7 +102,7 @@ worker 默认发现并执行本机有资格领取的 pending 工作；未知或�
 | `GET/PATCH/DELETE /sources/{id}` | 读取、更新配置或删除实例；删除返回 204 |
 | `POST /sources/{id}/anchor` | 延迟创建或同步来源锚点，返回 `core.source.v1` Block |
 | `POST /sources/{id}/collect` | body 为采集配置对象，缺省 `{}`。可加 `?timeout_seconds=…`，201 返回 `core.source.collect.v1` Job |
-| `POST /sources/{id}/backfill` | body 为回填配置对象，同样支持超时参数。该类型无 backfill schema 时返回 422 |
+| `POST /sources/{id}/backfill` | body 必须提供回填配置对象，同样支持超时参数。该类型无 backfill schema 时返回 422 |
 | `GET/POST /crons` | 模板分页，或创建 `{schedule,enabled?,job_type,job_parameters?,job_timeout_seconds?}`；创建返回 201 |
 | `GET/PATCH/DELETE /crons/{id}` | 读取、修改或删除模板；删除返回 204 |
 | `POST /crons/{id}/run` | 201 返回独立普通 Job，忽略 enabled，保留发生进度。`/api/v1` 返回 202 |
@@ -174,3 +174,17 @@ Cron 默认 enabled，schedule 使用五段 UNIX 格式、分钟粒度，时区�
 | `DELETE /extensions/{name}/participation` | 移除本 Peer 选择，保留部署共享身份与业务资料 |
 
 旧接口的 Extension name 必须将斜杠编码为 `%2F`。其 catalog 来源于 `--extension-manifest` 或 `INKCRE_EXTENSION_MANIFESTS` 指定的本机可信 manifest。根路径的精确选择可从 Registry 获取本平台 Rust 产物。配置更改在下一次启动生效。启用后按 capability descriptor 注册 typed adapter，停用会撤回本机能力并取消在途调用。构建和安装方式见 [运行说明](../40-deployment/runtime.md#插件生命周期)。
+
+## OpenAPI 与 CLI 发现
+
+`GET /openapi.json` 从处理器实际使用的请求 DTO 推导 JSON Schema，并将引用统一放在 components/schemas。POST Relation 使用接受原始 from_/to_ 的持久端点命令；PATCH 保留 REST 长名。GraphForm 的宽命令 ID、字段可空性及未知字段策略继续由实际 DTO 决定。Source collect 的 requestBody 为 optional，backfill 为 required。
+
+Query 参数由 OpenAPI owner 根据对应控制器的实际提取与固定 Python 合同显式声明，包含类型、可空性、默认值和范围：分页 limit 为正数，除 Jobs 默认 20 条外，未指定 limit 的 canonical 集合不固定页长；cursor 区分整数、字符串与 Peer UUID。Jobs 额外支持 type/status，Source 命令支持正数 timeout_seconds，Peer 路由入口支持 route_to_peer UUID。邻域 contents 使用 form/explode，编码为重复 query key。没有查询参数的 Sink 列表不会虚构分页字段。
+
+Schema 描述的输入与 CLI 的展示投影各有 owner。CLI 的 create、update、Source 命令及动态 Resolver 输入发现仍通过运行中的 OpenAPI 或能力 schema 获取；服务端不把命令行 selector 的投影复制成另一套 DTO。OpenAPI 文档不改变数据库准入、持久化或 worker 执行语义。
+
+公开的 `/livez` 返回 status=ok；隐藏兼容别名 `/heartbeat` 保持同一存活语义。`/readyz` 在原生数据库 contract、profile、实际观察到的 migration head、运行时或 Peer lease 未就绪时返回 503，并报告相应诊断；成功返回 200。Rust 报告实际准入结果，不把 Python 的迁移比较对象复制成另一套 DTO。健康探针在 OpenAPI 中明确不要求 Peer JWT。
+
+跨域请求按具体 Origin 返回凭据兼容的 CORS header，浏览器 preflight 由 CORS 层处理。普通 DAV OPTIONS 保留扩展协议处理；业务请求仍要求原有认证。
+
+根路径创建 Source、Job、Cron、Agent，以及 Source collect/backfill、Cron run 和 Sink query 的成功响应带 Location，指向本次创建的资源或 Job。OpenAPI 按各自 201/202 响应声明必有的 URI-reference header；当前 Rust 返回可基于服务 origin 解析的根相对 URI。Block/Relation 写入和 graph submit 未承诺 Location。兼容 `/api/v1` 的旧状态与 header 保持各自合同。
