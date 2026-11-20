@@ -10,6 +10,7 @@ members = [
     "extensions/github",
     "extensions/learn-english",
     "extensions/local-files",
+    "extensions/mail",
     "extensions/memos",
     "extensions/rss",
     "extensions/telegram",
