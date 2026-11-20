@@ -25,7 +25,7 @@ app 的 HTTP 入口及带版本前缀的兼容接口见 [HTTP API](http-api.md)�
 | Job | catalog/schema 准入、handler registry、资格判断、pending 发现、原子 claim、并发预算、持久 checkpoint、执行中取消与终态收尾；不自动重试 |
 | 定时与采集 | Source catalog/config/state/anchor、collect/backfill 框架、五段 Cron 与时区。RSS/Atom 采集正文和附件，GitHub Stars 与 Lists 对账共享图 |
 | 检索 | PostgreSQL 词法投影和 profile 向量空间，维护和重建 Job，应用方可分别获得 hybrid 的两组排名 |
-| 第一方扩展 | RSS/Atom、GitHub 与 Telegram 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取，Memos HTTP 与 memo-family 图 |
+| 第一方扩展 | RSS/Atom、GitHub 与 Telegram 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取，Memos HTTP 与 memo-family 图，CalDAV/CardDAV 原生服务 |
 | AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行、Agent 定义和工具调用、Organization 草稿及自动 Job、Agent Query 与 MCP Sink |
 | 运维与接口 | 请求 DTO 驱动的 OpenAPI、独立 `inkcre-cli`、安装目录打包与 Registry 发布脚本。PostgreSQL 或 Loki 观测记录及有界查询，认证 OTLP 转发 |
 
