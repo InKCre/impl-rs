@@ -31,6 +31,7 @@ cp .env.example .env
 | `INKCRE_WORKER_CONCURRENCY` | `4`；本机资格判断及执行的并发预算，范围 1–256 |
 | `INKCRE_NO_CRON` | 默认 false；true 时不启动自动 Cron loop，保留按 ID 的显式 run/materialize 入口 |
 | `INKCRE_TOKEN_LIFETIME_SECONDS` | `3600`；`token` 命令签发 JWT 的默认有效期 |
+| `TWITTER_X_MONKEY_JWT_LIFETIME_SECONDS` | `604800`；Twitter x-monkey 浏览器会话的签发和续期时长 |
 | `RUST_LOG` | 日志过滤；普通运行不应开启请求参数或 SQL 参数输出 |
 
 完整 CLI 参数见 `inkcre --help`、`inkcre serve --help`。`--env-file <路径>` 显式选择 dotenv 文件。运行目录中的状态文件需要随实例保留；丢失默认 UUID 会产生新的 Peer 身份。
@@ -74,6 +75,8 @@ enable 保存意图后启动插件，initialize 获得该精确分发的 config 
 宿主读取可信 artifact 的配置 schema 后，已停用的参与也可验证配置。声明 `passive_knowledge` 的精确产物通过独立进程继续解算持久 Block。停用后活跃进程、HTTP 和 Job/Source 能力会撤回，扩展状态仍显示 `running=false`。`unselect` 释放所选产物的本机读取进程。重启时从当前数据库精确选择恢复读取。
 
 原生 executable 是可信代码，进程隔离承担生命周期管理。宿主以 `INKCRE_DATABASE_URL` 向受信插件提供 native 数据库能力，凭据不会写进 manifest 或共享扩展 config。初始化和通用 SDK 操作每帧上限为 1 MiB。扩展 HTTP 路由通过独立的 `http_request` 帧传递原始 body，body 上限 45 MiB，传输帧上限 64 MiB。本机 HTTP 层最多同时处理四个扩展 HTTP 请求。
+
+Twitter x-monkey 的浏览器会话由 app 签发和续期，使用归档专属 JWT audience。宿主仅将校验后的会话到期时间交给当前启用的 Twitter 扩展，也可在归档入口校验已有 Python 会话并在续期时转换。将 `http_public_base_url` 设为浏览器可访问的 HTTPS 地址，包含代理前缀时 Cookie 路径也包含该前缀。
 
 [`inkcre/rss`](../../extensions/rss/README.md) 使用同一 Extension Name、Source 类型与 canonical 图契约提供 RSS/Atom 采集、正文提取、附件保存和三个 Resolver。构建、manifest 坐标与配置见扩展 README；backfill 明确不支持。它使用严格 XML 解析，拒绝损坏或不能对齐条目的文档，不保证 Python feedparser 的容错恢复行为或提取文本逐字相同。游标范围及可恢复投影见 [RSS 设计](../30-unit-tdd/rss-extension.md)。
 

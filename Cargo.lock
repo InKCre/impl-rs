@@ -1640,6 +1640,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
@@ -1722,7 +1723,9 @@ dependencies = [
  "jsonschema",
  "jsonwebtoken",
  "lopdf",
+ "opentelemetry",
  "opentelemetry-proto",
+ "opentelemetry_sdk",
  "prost",
  "reqwest",
  "roxmltree",

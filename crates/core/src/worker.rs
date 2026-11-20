@@ -494,101 +494,127 @@ async fn execute(
     let Some(claimed) = core.job_claim(id).await? else {
         return Ok(false);
     };
-    tracing::info!(event="job.started",job_id=id,job_type=%claimed.type_,"Job started");
-    core.record_event(
-        "job.started",
-        json!({"inkcre.job.id":id,"inkcre.job.status":"running","inkcre.operation":"job.execute"})
+    let operation = core.linked_operation(
+        "job.execute",
+        json!({"inkcre.job.id": id})
             .as_object()
-            .expect("event object")
+            .expect("metadata object")
             .clone(),
+        crate::observability::TraceCarrier {
+            traceparent: claimed.submission_traceparent.clone(),
+            tracestate: claimed.submission_tracestate.clone(),
+        },
     );
-    if invalid {
-        close(
-            &core,
-            id,
-            JobStatus::Failed,
-            Some("invalid_persisted_parameters"),
-        )
-        .await?;
-        return Ok(true);
-    }
-    if !accepting.load(Ordering::Acquire)
-        || candidate.parameters != claimed.parameters
-        || candidate.type_ != claimed.type_
-    {
-        close(&core, id, JobStatus::Aborted, None).await?;
-        return Ok(true);
-    }
-    let initial_control = control(&core, id).await?;
-    let remaining = initial_control
-        .remaining
-        .unwrap_or(f64::from(claimed.timeout_seconds))
-        .max(0.0);
-    if remaining == 0.0 {
-        close(&core, id, JobStatus::TimedOut, None).await?;
-        return Ok(true);
-    }
-    if initial_control.status != JobStatus::Running || initial_control.abort_requested {
-        close(&core, id, JobStatus::Aborted, None).await?;
-        return Ok(true);
-    }
-    let (cancel, cancellation) = watch::channel(false);
-    let context = JobContext {
-        core: core.clone(),
-        job_id: id,
-        cancellation,
-        cancel: cancel.clone(),
-    };
-    let handler = registration.handler.clone();
-    let handler_context = context.clone();
-    let handler_job = claimed.clone();
-    let mut task = HandlerTask(tokio::spawn(async move {
-        handler.handle(handler_context, handler_job).await
-    }));
-    let deadline = tokio::time::sleep(Duration::from_secs_f64(remaining));
-    tokio::pin!(deadline);
-    let mut tick = tokio::time::interval(config.abort_poll_interval);
-    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let (status, error) = loop {
-        tokio::select! {
-            biased;
-            _=stop.changed()=>break (JobStatus::Aborted,None),
-            _=&mut deadline=>break (JobStatus::TimedOut,None),
-            _=context.cancelled()=>break (JobStatus::Aborted,None),
-            _=tick.tick()=> {
-                if !registry.current(&claimed.type_,registration.generation) {break (JobStatus::Aborted,None);}
-                let observation=tokio::select! {
-                    _=stop.changed()=>break (JobStatus::Aborted,None),
-                    _=&mut deadline=>break (JobStatus::TimedOut,None),
-                    result=timeout(Duration::from_secs(3),control(&core,id))=>result,
-                };
-                match observation {
-                    Ok(Ok(control)) if control.status!=JobStatus::Running=>break (if control.status.terminal(){control.status}else{JobStatus::Aborted},None),
-                    Ok(Ok(control)) if control.abort_requested=>break (JobStatus::Aborted,None),
-                    Ok(Ok(_))=>{},
-                    _=>tracing::warn!(job_id=id,"Job cancellation observation unavailable"),
-                }
-            },
-            result=&mut task.0=>break if !registry.current(&claimed.type_,registration.generation) {
-                (JobStatus::Aborted,None)
-            } else {match result {
-                Ok(Ok(()))=>(JobStatus::Finished,None),
-                _=>(JobStatus::Failed,Some("handler_failed")),
-            }},
+    let observation = operation.clone();
+    operation.run(async {
+        tracing::info!(event="job.started",job_id=id,job_type=%claimed.type_,"Job started");
+        core.record_event(
+            "job.started",
+            json!({"inkcre.job.id":id,"inkcre.job.status":"running","inkcre.operation":"job.execute"})
+                .as_object()
+                .expect("event object")
+                .clone(),
+        );
+        if invalid {
+            observation.set_outcome(crate::observability::Outcome::Error);
+            close(
+                &core,
+                id,
+                JobStatus::Failed,
+                Some("invalid_persisted_parameters"),
+            )
+            .await?;
+            return Ok(true);
         }
-    };
-    if !task.0.is_finished() {
-        let _ = cancel.send(true);
-        if timeout(config.cancellation_grace, &mut task.0)
-            .await
-            .is_err()
+        if !accepting.load(Ordering::Acquire)
+            || candidate.parameters != claimed.parameters
+            || candidate.type_ != claimed.type_
         {
-            task.0.abort();
-            let _ = (&mut task.0).await;
+            observation.set_outcome(crate::observability::Outcome::Cancelled);
+            close(&core, id, JobStatus::Aborted, None).await?;
+            return Ok(true);
         }
-    }
-    close(&core, id, status, error).await?;
-    Ok(true)
+        let initial_control = control(&core, id).await?;
+        let remaining = initial_control
+            .remaining
+            .unwrap_or(f64::from(claimed.timeout_seconds))
+            .max(0.0);
+        if remaining == 0.0 {
+            observation.set_outcome(crate::observability::Outcome::Error);
+            close(&core, id, JobStatus::TimedOut, None).await?;
+            return Ok(true);
+        }
+        if initial_control.status != JobStatus::Running || initial_control.abort_requested {
+            observation.set_outcome(crate::observability::Outcome::Cancelled);
+            close(&core, id, JobStatus::Aborted, None).await?;
+            return Ok(true);
+        }
+        let (cancel, cancellation) = watch::channel(false);
+        let context = JobContext {
+            core: core.clone(),
+            job_id: id,
+            cancellation,
+            cancel: cancel.clone(),
+        };
+        let handler = registration.handler.clone();
+        let handler_context = context.clone();
+        let handler_job = claimed.clone();
+        let trace_scope = core.trace_scope();
+        let mut task = HandlerTask(tokio::spawn(async move {
+            let future = handler.handle(handler_context, handler_job);
+            if let Some(scope) = trace_scope { scope.scope(future).await } else { future.await }
+        }));
+        let deadline = tokio::time::sleep(Duration::from_secs_f64(remaining));
+        tokio::pin!(deadline);
+        let mut tick = tokio::time::interval(config.abort_poll_interval);
+        tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let (status, error) = loop {
+            tokio::select! {
+                biased;
+                _=stop.changed()=>break (JobStatus::Aborted,None),
+                _=&mut deadline=>break (JobStatus::TimedOut,None),
+                _=context.cancelled()=>break (JobStatus::Aborted,None),
+                _=tick.tick()=> {
+                    if !registry.current(&claimed.type_,registration.generation) {break (JobStatus::Aborted,None);}
+                    let observation=tokio::select! {
+                        _=stop.changed()=>break (JobStatus::Aborted,None),
+                        _=&mut deadline=>break (JobStatus::TimedOut,None),
+                        result=timeout(Duration::from_secs(3),control(&core,id))=>result,
+                    };
+                    match observation {
+                        Ok(Ok(control)) if control.status!=JobStatus::Running=>break (if control.status.terminal(){control.status}else{JobStatus::Aborted},None),
+                        Ok(Ok(control)) if control.abort_requested=>break (JobStatus::Aborted,None),
+                        Ok(Ok(_))=>{},
+                        _=>tracing::warn!(job_id=id,"Job cancellation observation unavailable"),
+                    }
+                },
+                result=&mut task.0=>break if !registry.current(&claimed.type_,registration.generation) {
+                    (JobStatus::Aborted,None)
+                } else {match result {
+                    Ok(Ok(()))=>(JobStatus::Finished,None),
+                    _=>(JobStatus::Failed,Some("handler_failed")),
+                }},
+            }
+        };
+        if !task.0.is_finished() {
+            let _ = cancel.send(true);
+            if timeout(config.cancellation_grace, &mut task.0)
+                .await
+                .is_err()
+            {
+                task.0.abort();
+                let _ = (&mut task.0).await;
+            }
+        }
+        observation.set_attribute("inkcre.job.status", json!(status));
+        observation.set_outcome(match status {
+            JobStatus::Finished => crate::observability::Outcome::Success,
+            JobStatus::Aborted => crate::observability::Outcome::Cancelled,
+            _ => crate::observability::Outcome::Error,
+        });
+        close(&core, id, status, error).await?;
+        Ok(true)
+    }).await
 }
 
 #[derive(sqlx::FromRow)]

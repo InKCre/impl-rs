@@ -21,7 +21,9 @@ mod routes;
 mod semantic_routes;
 mod sink_routes;
 mod source_routes;
+mod telemetry_middleware;
 mod telemetry_routes;
+mod twitter_session;
 
 use std::{
     collections::BTreeMap,
@@ -290,6 +292,9 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     )
     .await;
     let telemetry = inkcre_core::observability::Relay::start(&core, &observation_options).await;
+    observations
+        .start_telemetry(telemetry.clone(), env!("CARGO_PKG_VERSION"))
+        .await;
     let worker = worker.map(Worker::start);
     let notifier = worker.as_ref().map(|handle| handle.notifier());
     let cron = cron.map(CronScheduler::start);
@@ -331,6 +336,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         host: host.clone(),
         peer_id,
         secret: Arc::from(args.jwt_secret),
+        twitter_session_lifetime: args.twitter_x_monkey_jwt_lifetime_seconds,
         lease_valid: lease_valid.clone(),
         catalog: Arc::new(catalog),
         timeout: Duration::from_secs(args.request_timeout_seconds),
@@ -350,6 +356,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     let _ = reconcile_task.await;
     let _ = runtime_task.await;
     host.shutdown().await;
+    observations.shutdown_telemetry().await;
     telemetry.shutdown();
     observations.shutdown().await;
     let cleared = core.peer_clear_lease(peer_id).await;

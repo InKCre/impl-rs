@@ -1,5 +1,11 @@
 //! Bounded recording and querying of the deployment-selected observation backend.
+mod exporter;
 mod loki;
+mod operation;
+mod propagation;
+pub use exporter::Exporter;
+pub use operation::{Operation, Outcome};
+pub use propagation::{TraceCarrier, TraceScope};
 mod options;
 mod relay;
 pub use relay::{Relay, RelayError};
@@ -38,6 +44,8 @@ impl Counters {
     }
 }
 pub struct Runtime {
+    id: Uuid,
+    exporter: SyncMutex<Option<Arc<Exporter>>>,
     core: Core,
     peer_id: Uuid,
     selected: String,
@@ -68,6 +76,8 @@ impl Runtime {
             error: SyncMutex::new(error),
         });
         let runtime = Arc::new(Self {
+            id: Uuid::new_v4(),
+            exporter: SyncMutex::new(None),
             core: core.clone(),
             peer_id,
             selected,
@@ -117,6 +127,30 @@ impl Runtime {
         }
         runtime.core.bind_observability(&runtime);
         runtime
+    }
+    /// Initialize opt-in metadata signals using this instance's private relay connections.
+    pub async fn start_telemetry(&self, relay: Arc<Relay>, version: &str) {
+        let exporter = Exporter::start(relay, self.peer_id, version).await;
+        let old = self
+            .exporter
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .replace(exporter);
+        if let Some(old) = old {
+            old.shutdown().await;
+        }
+    }
+    pub fn exporter(&self) -> Option<Arc<Exporter>> {
+        self.exporter
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+    pub async fn shutdown_telemetry(&self) {
+        let exporter = self.exporter();
+        if let Some(exporter) = exporter {
+            exporter.shutdown().await;
+        }
     }
     pub fn status(&self) -> Status {
         Status {
@@ -207,6 +241,7 @@ impl Runtime {
         }
     }
     pub async fn shutdown(&self) {
+        self.shutdown_telemetry().await;
         {
             let _gate = self.gate.lock().unwrap_or_else(|p| p.into_inner());
             if self.closed.swap(true, Ordering::AcqRel) {
@@ -235,23 +270,36 @@ impl Core {
         *self.observation.write().unwrap_or_else(|p| p.into_inner()) =
             Some(Arc::downgrade(runtime));
     }
-    pub fn record_event(&self, name: &str, attributes: serde_json::Map<String, Value>) {
-        let runtime = self
-            .observation
+    pub(crate) fn observation_runtime(&self) -> Option<Arc<Runtime>> {
+        self.observation
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .as_ref()
-            .and_then(std::sync::Weak::upgrade);
+            .and_then(std::sync::Weak::upgrade)
+    }
+    pub fn record_event(&self, name: &'static str, attributes: serde_json::Map<String, Value>) {
+        let runtime = self.observation_runtime();
         if let Some(runtime) = runtime {
             let mut event = Record::event(name, attributes);
             if event
                 .attributes
-                .get("inkcre.job.status")
+                .get("outcome")
                 .and_then(Value::as_str)
-                .is_some_and(|status| matches!(status, "failed" | "timed_out"))
+                .is_some_and(|outcome| matches!(outcome, "error" | "timeout"))
+                || event
+                    .attributes
+                    .get("inkcre.job.status")
+                    .and_then(Value::as_str)
+                    .is_some_and(|status| matches!(status, "failed" | "timed_out"))
             {
                 event.severity_number = 17;
                 event.severity_text = "ERROR".into();
+            }
+            if let Some(scope) = self.trace_scope() {
+                operation::correlate(&mut event, &scope.context);
+            }
+            if let Some(exporter) = runtime.exporter() {
+                exporter.log(&event);
             }
             runtime.emit(event);
         }

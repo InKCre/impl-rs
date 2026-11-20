@@ -216,17 +216,18 @@ impl Core {
         if sink.type_ != AGENT_QUERY || !sink.enabled.contains(&peer) {
             return Err(Error::NotFound("running Agent Query Sink"));
         }
-        let job = Self::job_submit_in(
-            &mut transaction,
-            JobInput {
-                type_: AGENT_QUERY_JOB.into(),
-                parameters: json!({"sink":id,"query":query.query}),
-                timeout_seconds: query.timeout_seconds,
-                submission_traceparent: None,
-                submission_tracestate: None,
-            },
-        )
-        .await?;
+        let job = self
+            .job_submit_in(
+                &mut transaction,
+                JobInput {
+                    type_: AGENT_QUERY_JOB.into(),
+                    parameters: json!({"sink":id,"query":query.query}),
+                    timeout_seconds: query.timeout_seconds,
+                    submission_traceparent: None,
+                    submission_tracestate: None,
+                },
+            )
+            .await?;
         transaction.commit().await?;
         Ok(job)
     }

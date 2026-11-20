@@ -25,6 +25,7 @@ struct Connection {
     timeout: Duration,
 }
 pub struct Relay {
+    pub(crate) deployment_id: Option<Uuid>,
     connections: SyncMutex<BTreeMap<String, Connection>>,
     stop: watch::Sender<bool>,
     pub requests: Arc<Semaphore>,
@@ -33,6 +34,7 @@ pub struct Relay {
 impl Relay {
     pub async fn start(core: &Core, options: &LocalOptions) -> Arc<Self> {
         let mut connections = BTreeMap::new();
+        let mut deployment_id = None;
         if options.telemetry_enabled {
             let deployment = timeout(Duration::from_secs(5), async {
                 let row: Option<(String, Value)> = sqlx::query_as(
@@ -55,6 +57,7 @@ impl Relay {
             // A deployment identity is required for telemetry, independently of the
             // selected observation recording backend's availability.
             if let Ok(Ok(Some(deployment))) = deployment {
+                deployment_id = Some(deployment.deployment_id);
                 for signal in ["traces", "logs", "metrics"] {
                     let configured = options.otlp.get(signal);
                     let endpoint = configured
@@ -116,6 +119,7 @@ impl Relay {
             }
         }
         Arc::new(Self {
+            deployment_id,
             connections: SyncMutex::new(connections),
             stop: watch::channel(false).0,
             requests: Arc::new(Semaphore::new(4)),

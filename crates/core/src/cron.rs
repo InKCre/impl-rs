@@ -227,67 +227,70 @@ impl Core {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::NotFound("Cron"))?;
-        let job = Self::job_submit_in(&mut tx, job_input(row)).await?;
+        let job = self.job_submit_in(&mut tx, job_input(row)).await?;
         tx.commit().await?;
         Ok(job)
     }
 
     /// One locked occurrence; concurrent Peers either observe its progress or skip its lock.
     pub async fn cron_materialize(&self, id: i64) -> Result<Option<Job>> {
-        let timezone = self.cron_config_get().await?.zone()?;
-        let mut tx = self.pool().begin().await?;
-        let row: Option<Cron> = sqlx::query_as(&format!(
-            "SELECT {COLUMNS} FROM inkcre.crons WHERE id=$1 FOR UPDATE SKIP LOCKED"
-        ))
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some(row) = row.filter(|row| row.enabled) else {
-            return Ok(None);
-        };
-        let now: DateTime<Utc> = sqlx::query_scalar("SELECT statement_timestamp()")
-            .fetch_one(&mut *tx)
+        self.operation("cron.materialize", serde_json::json!({"inkcre.cron.id":id}).as_object().expect("metadata object").clone()).run(async {
+            let timezone = self.cron_config_get().await?.zone()?;
+            let mut tx = self.pool().begin().await?;
+            let row: Option<Cron> = sqlx::query_as(&format!(
+                "SELECT {COLUMNS} FROM inkcre.crons WHERE id=$1 FOR UPDATE SKIP LOCKED"
+            ))
+            .bind(id)
+            .fetch_optional(&mut *tx)
             .await?;
-        let occurrence = DateTime::<Utc>::from_timestamp(now.timestamp().div_euclid(60) * 60, 0)
-            .ok_or_else(|| {
-                Error::InvalidInput("database clock is outside the supported Cron range".into())
-            })?;
-        let pattern = parse_schedule(&row.schedule)?;
-        let matches = pattern
-            .is_time_matching(&occurrence.with_timezone(&timezone))
-            .map_err(|_| {
-                Error::InvalidInput("persisted Cron schedule cannot be evaluated".into())
-            })?;
-        if !matches || row.last_scheduled_for == Some(occurrence) {
-            return Ok(None);
-        }
-        if let Some(last_job) = row.last_job {
-            let status: Option<JobStatus> =
-                sqlx::query_scalar("SELECT status::text FROM inkcre.jobs WHERE id=$1")
-                    .bind(last_job)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            if status
-                .is_some_and(|status| matches!(status, JobStatus::Pending | JobStatus::Running))
-            {
+            let Some(row) = row.filter(|row| row.enabled) else {
+                return Ok(None);
+            };
+            let now: DateTime<Utc> = sqlx::query_scalar("SELECT statement_timestamp()")
+                .fetch_one(&mut *tx)
+                .await?;
+            let occurrence = DateTime::<Utc>::from_timestamp(now.timestamp().div_euclid(60) * 60, 0)
+                .ok_or_else(|| {
+                    Error::InvalidInput("database clock is outside the supported Cron range".into())
+                })?;
+            let pattern = parse_schedule(&row.schedule)?;
+            let matches = pattern
+                .is_time_matching(&occurrence.with_timezone(&timezone))
+                .map_err(|_| {
+                    Error::InvalidInput("persisted Cron schedule cannot be evaluated".into())
+                })?;
+            if !matches || row.last_scheduled_for == Some(occurrence) {
                 return Ok(None);
             }
-        }
-        let job = Self::job_submit_in(&mut tx, job_input(row)).await?;
-        sqlx::query("UPDATE inkcre.crons SET last_job=$2,last_scheduled_for=$3 WHERE id=$1")
-            .bind(id)
-            .bind(job.id)
-            .bind(occurrence)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        tracing::info!(
-            event = "cron.materialized",
-            cron_id = id,
-            job_id = job.id,
-            "Cron occurrence created Job"
-        );
-        Ok(Some(job))
+            if let Some(last_job) = row.last_job {
+                let status: Option<JobStatus> =
+                    sqlx::query_scalar("SELECT status::text FROM inkcre.jobs WHERE id=$1")
+                        .bind(last_job)
+                        .fetch_optional(&mut *tx)
+                        .await?;
+                if status
+                    .is_some_and(|status| matches!(status, JobStatus::Pending | JobStatus::Running))
+                {
+                    return Ok(None);
+                }
+            }
+            let job = self.job_submit_in(&mut tx, job_input(row)).await?;
+            sqlx::query("UPDATE inkcre.crons SET last_job=$2,last_scheduled_for=$3 WHERE id=$1")
+                .bind(id)
+                .bind(job.id)
+                .bind(occurrence)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            tracing::info!(
+                event = "cron.materialized",
+                cron_id = id,
+                job_id = job.id,
+                "Cron occurrence created Job"
+            );
+            self.record_event("cron.materialized", serde_json::json!({"inkcre.cron.id":id,"inkcre.job.id":job.id,"inkcre.operation":"cron.materialize"}).as_object().expect("metadata object").clone());
+            Ok(Some(job))
+        }).await
     }
 }
 

@@ -48,6 +48,10 @@ pub struct ServeArgs {
     pub database: DatabaseArgs,
     #[arg(long, env = "JWT_SECRET", hide_env_values = true)]
     pub jwt_secret: String,
+    /// Twitter x-monkey browser session 的签发及续期时长
+    #[arg(long, env = "TWITTER_X_MONKEY_JWT_LIFETIME_SECONDS", default_value_t = 604_800,
+          value_parser = clap::value_parser!(u64).range(1..))]
+    pub twitter_x_monkey_jwt_lifetime_seconds: u64,
     #[arg(long, env = "INKCRE_BIND", default_value = "127.0.0.1:8000")]
     pub bind: SocketAddr,
     /// 不指定时，在 state-dir 中创建并复用 UUID

@@ -43,16 +43,22 @@ impl Core {
     /// Accept any catalogued exact type, independently of local handler availability.
     pub async fn job_submit(&self, input: JobInput) -> Result<Job> {
         let mut tx = self.pool().begin().await?;
-        let job = Self::job_submit_in(&mut tx, input).await?;
+        let job = self.job_submit_in(&mut tx, input).await?;
         tx.commit().await?;
         Ok(job)
     }
 
     /// Compose command creation with another business write in the same transaction.
     pub(crate) async fn job_submit_in(
+        &self,
         tx: &mut Transaction<'_, Postgres>,
-        input: JobInput,
+        mut input: JobInput,
     ) -> Result<Job> {
+        if input.submission_traceparent.is_none() && input.submission_tracestate.is_none() {
+            let carrier = self.trace_carrier();
+            input.submission_traceparent = carrier.traceparent;
+            input.submission_tracestate = carrier.tracestate;
+        }
         if !input.parameters.is_object() {
             return Err(Error::InvalidInput(
                 "job parameters must be an object".into(),

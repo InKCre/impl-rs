@@ -8,12 +8,13 @@ pub use tools::register_builtin_tools;
 
 use crate::{
     Core, Error, Page, Result,
-    ai::{self, Ai, FunctionTool, Message, ToolChoice, ToolResult},
+    ai::{self, Ai, FunctionTool, Message, ToolCall, ToolChoice, ToolResult},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -267,7 +268,11 @@ impl Runtime {
             id,
             core: self.core.clone(),
             persistence: self.persistence.clone(),
-            state: Mutex::new(State { snapshot, tools }),
+            state: Mutex::new(State {
+                snapshot,
+                tools,
+                turn_index: 0,
+            }),
         })
     }
 
@@ -278,6 +283,7 @@ impl Runtime {
     }
 }
 struct State {
+    turn_index: u64,
     snapshot: ThreadState,
     tools: Vec<BoundTool>,
 }
@@ -320,81 +326,140 @@ impl Thread {
             .state
             .try_lock()
             .map_err(|_| Error::Conflict("Agent turn already active".into()))?;
-        state.snapshot = self
-            .persistence
-            .discard_trailing_incomplete_tool_calls(self.id)
-            .await?;
-        state.snapshot = self.persistence.append(self.id, vec![input]).await?;
-        let ai = Ai::new(self.core.clone()).map_err(ai_error)?;
-        let definitions = state
-            .tools
-            .iter()
-            .map(|t| t.definition.clone())
-            .collect::<Vec<_>>();
-        for _ in 0..state.snapshot.max_model_calls_per_turn {
-            let assistant = ai
-                .chat(
-                    state.snapshot.model,
-                    &state.snapshot.messages,
-                    &definitions,
-                    state.snapshot.tool_choice.as_ref(),
-                )
-                .await
-                .map_err(ai_error)?;
-            if assistant.tool_calls.is_empty() {
+        state.turn_index = state.turn_index.saturating_add(1);
+        let turn = state.turn_index;
+        let operation = self.core.operation(
+            "agent.turn",
+            json!({"gen_ai.conversation.id": self.id, "inkcre.agent.turn": turn})
+                .as_object()
+                .expect("metadata object")
+                .clone(),
+        );
+        operation.set_failure_attribute(
+            "inkcre.agent.outcome",
+            json!("failed"),
+            json!("cancelled"),
+        );
+        let observation = operation.clone();
+        operation
+            .run(async {
                 state.snapshot = self
                     .persistence
-                    .append(self.id, vec![assistant.into()])
+                    .discard_trailing_incomplete_tool_calls(self.id)
                     .await?;
-                return Ok(Termination::Completed);
-            }
-            let mut calls = Vec::new();
-            for call in assistant.tool_calls.iter().cloned() {
-                let bound = state
+                state.snapshot = self.persistence.append(self.id, vec![input]).await?;
+                let ai = Ai::new(self.core.clone()).map_err(ai_error)?;
+                let definitions = state
                     .tools
                     .iter()
-                    .find(|t| t.definition.id == call.tool)
-                    .cloned();
-                calls.push(async move {
-                    let result = match bound {
-                        None => Err(ToolFailure::Actionable(
-                            json!({"error":"unknown_tool","tool":call.tool}),
-                        )),
-                        Some(tool) => {
-                            let input = Value::Object(call.arguments);
-                            let schema = Value::Object(tool.definition.input_schema);
-                            if jsonschema::is_valid(&schema, &input) {
-                                tool.handler.invoke(input).await
-                            } else {
-                                Err(ToolFailure::Actionable(
-                                    json!({"error":"invalid_arguments"}),
-                                ))
-                            }
-                        }
-                    };
-                    let (content, is_error) = match result {
-                        Ok(value) => (value, false),
-                        Err(ToolFailure::Actionable(value)) => (value, true),
-                        Err(ToolFailure::Failed) => {
-                            (json!({"error":"tool_execution_failed"}), true)
-                        }
-                    };
-                    ToolResult {
-                        tool_call_id: call.id,
-                        content,
-                        is_error,
+                    .map(|t| t.definition.clone())
+                    .collect::<Vec<_>>();
+                for model_call in 1..=state.snapshot.max_model_calls_per_turn {
+                    observation.set_attribute("inkcre.agent.model_calls", json!(model_call));
+                    if self
+                        .step(&mut state, &ai, &definitions, turn, model_call)
+                        .await?
+                    {
+                        observation.set_attribute("inkcre.agent.outcome", json!("completed"));
+                        return Ok(Termination::Completed);
                     }
+                }
+                observation.set_attribute("inkcre.agent.outcome", json!("max_model_calls"));
+                Ok(Termination::MaxModelCalls)
+            })
+            .await
+    }
+    async fn step(
+        &self,
+        state: &mut State,
+        ai: &Ai,
+        definitions: &[FunctionTool],
+        turn: u64,
+        model_call: i32,
+    ) -> Result<bool> {
+        let operation=self.core.operation("agent.step",json!({"gen_ai.conversation.id":self.id,"inkcre.agent.turn":turn,"inkcre.agent.model_call":model_call}).as_object().expect("metadata object").clone());
+        operation
+            .run(async {
+                let assistant = ai
+                    .chat(
+                        state.snapshot.model,
+                        &state.snapshot.messages,
+                        definitions,
+                        state.snapshot.tool_choice.as_ref(),
+                    )
+                    .await
+                    .map_err(ai_error)?;
+                if assistant.tool_calls.is_empty() {
+                    state.snapshot = self
+                        .persistence
+                        .append(self.id, vec![assistant.into()])
+                        .await?;
+                    return Ok(true);
+                }
+                let calls = assistant.tool_calls.iter().cloned().map(|call| {
+                    let bound = state
+                        .tools
+                        .iter()
+                        .find(|t| t.definition.id == call.tool)
+                        .cloned();
+                    self.execute_tool(call, bound, turn, model_call)
                 });
-            }
-            let results = futures_util::future::join_all(calls).await;
-            state.snapshot = self
-                .persistence
-                .append(
-                    self.id,
-                    vec![assistant.into(), Message::ToolResult { results }],
-                )
-                .await?;
+                let results = futures_util::future::join_all(calls).await;
+                state.snapshot = self
+                    .persistence
+                    .append(
+                        self.id,
+                        vec![assistant.into(), Message::ToolResult { results }],
+                    )
+                    .await?;
+                Ok(false)
+            })
+            .await
+    }
+    async fn execute_tool(
+        &self,
+        call: ToolCall,
+        bound: Option<BoundTool>,
+        turn: u64,
+        model_call: i32,
+    ) -> ToolResult {
+        let operation=self.core.operation("agent.tool",json!({"gen_ai.operation.name":"execute_tool","gen_ai.conversation.id":self.id,"inkcre.agent.turn":turn,"inkcre.agent.model_call":model_call,"inkcre.agent.tool_call.id_hash":format!("{:x}",Sha256::digest(call.id.as_bytes()))}).as_object().expect("metadata object").clone());
+        if let Some(bound) = &bound {
+            operation.set_attribute("gen_ai.tool.name", json!(bound.definition.id));
         }
-        Ok(Termination::MaxModelCalls)
+        let observation = operation.clone();
+        operation
+            .scope(async move {
+                let result = match bound {
+                    None => Err(ToolFailure::Actionable(
+                        json!({"error":"unknown_tool","tool":call.tool}),
+                    )),
+                    Some(tool) => {
+                        let input = Value::Object(call.arguments);
+                        let schema = Value::Object(tool.definition.input_schema);
+                        if jsonschema::is_valid(&schema, &input) {
+                            tool.handler.invoke(input).await
+                        } else {
+                            Err(ToolFailure::Actionable(
+                                json!({"error":"invalid_arguments"}),
+                            ))
+                        }
+                    }
+                };
+                let (content, is_error) = match result {
+                    Ok(value) => (value, false),
+                    Err(ToolFailure::Actionable(value)) => (value, true),
+                    Err(ToolFailure::Failed) => (json!({"error":"tool_execution_failed"}), true),
+                };
+                if is_error {
+                    observation.set_outcome(crate::observability::Outcome::Error);
+                }
+                ToolResult {
+                    tool_call_id: call.id,
+                    content,
+                    is_error,
+                }
+            })
+            .await
     }
 }

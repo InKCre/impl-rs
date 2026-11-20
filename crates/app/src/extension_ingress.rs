@@ -11,6 +11,7 @@ use inkcre_core::extension::{
 use crate::{
     error::{ApiError, ApiResult},
     routes::{AppState, extension_error, peer_authentication_error},
+    twitter_session::{EXPIRY_HEADER, Session},
 };
 
 pub const RESERVED_MOUNTS: &[&str] = &[
@@ -80,18 +81,27 @@ pub async fn route(State(state): State<AppState>, request: Request) -> ApiResult
                 "Extension HTTP capacity reached",
             )
         })?;
-    let headers = parts
+    let session = Session::prepare(&state, &dispatch, method, &path, &parts.headers).await?;
+    let mut headers: Vec<_> = parts
         .headers
         .iter()
         .filter(|(name, _)| {
             !unsafe_header(name, &parts.headers)
                 && (dispatch.auth == HttpAuth::Protocol || *name != header::AUTHORIZATION)
+                && (session.is_none()
+                    || (*name != header::COOKIE && *name != header::AUTHORIZATION))
         })
         .map(|(name, value)| HttpHeader {
             name: name.as_str().into(),
             value: value.as_bytes().to_vec(),
         })
         .collect();
+    if let Some(expiry) = session.as_ref().and_then(|session| session.expiry) {
+        headers.push(HttpHeader {
+            name: EXPIRY_HEADER.into(),
+            value: expiry.to_string().into_bytes(),
+        });
+    }
     let body = to_bytes(body, MAX_HTTP_BODY_BYTES).await.map_err(|_| {
         ApiError::new(
             StatusCode::PAYLOAD_TOO_LARGE,
@@ -124,9 +134,12 @@ pub async fn route(State(state): State<AppState>, request: Request) -> ApiResult
     }
     let mut allowed = HeaderMap::new();
     for (name, value) in &headers {
-        if !unsafe_header(name, &headers) {
+        if !unsafe_header(name, &headers) && (session.is_none() || *name != header::SET_COOKIE) {
             allowed.append(name.clone(), value.clone());
         }
+    }
+    if let Some(session) = session {
+        session.apply(status, &mut allowed);
     }
     let mut outgoing = Response::new(Body::from(response.body.0));
     *outgoing.status_mut() = status;
@@ -147,6 +160,7 @@ fn unsafe_header(name: &HeaderName, headers: &HeaderMap) -> bool {
             | "trailer"
             | "transfer-encoding"
             | "upgrade"
+            | EXPIRY_HEADER
     ) || headers
         .get_all(header::CONNECTION)
         .iter()

@@ -18,6 +18,12 @@ pub struct HttpDispatch {
     process: Arc<Process>,
 }
 
+impl HttpDispatch {
+    pub fn extension_name(&self) -> &str {
+        &self.name
+    }
+}
+
 impl ExtensionHost {
     /// Locate a route without reading its body or releasing credentials to the plugin.
     pub async fn admit_http(&self, method: &str, path: &str) -> Option<HttpDispatch> {

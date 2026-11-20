@@ -42,6 +42,7 @@ pub struct AppState {
     pub host: ExtensionHost,
     pub peer_id: Uuid,
     pub secret: Arc<str>,
+    pub twitter_session_lifetime: u64,
     pub lease_valid: Arc<AtomicBool>,
     pub catalog: Arc<BTreeMap<(String, String), PathBuf>>,
     pub timeout: Duration,
@@ -144,6 +145,10 @@ pub fn router(state: AppState) -> Router {
             )
         })
         .layer(DefaultBodyLimit::max(8 * 1024 * 1024))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::telemetry_middleware::observe,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             request_timeout,

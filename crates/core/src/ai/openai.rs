@@ -375,6 +375,31 @@ impl Dialect for OpenAi {
         inputs: &[String],
         dimensions: usize,
     ) -> Result<Vec<Vec<f32>>> {
+        Ok(self
+            .embed_with_usage(config, model, inputs, dimensions)
+            .await?
+            .0)
+    }
+    async fn chat(
+        &self,
+        config: &Value,
+        model: &str,
+        messages: &[Message],
+        tools: &[FunctionTool],
+        choice: Option<&ToolChoice>,
+    ) -> Result<AssistantMessage> {
+        Ok(self
+            .chat_with_usage(config, model, messages, tools, choice)
+            .await?
+            .0)
+    }
+    async fn embed_with_usage(
+        &self,
+        config: &Value,
+        model: &str,
+        inputs: &[String],
+        dimensions: usize,
+    ) -> Result<(Vec<Vec<f32>>, Usage)> {
         let response = self
             .post(
                 config,
@@ -396,20 +421,21 @@ impl Dialect for OpenAi {
                 return Err(Error::Output("duplicate embedding index"));
             }
         }
-        indexed
+        let vectors = indexed
             .into_iter()
             .map(|value| value.ok_or(Error::Output("missing embedding index")))
-            .collect()
+            .collect::<Result<_>>()?;
+        Ok((vectors, response_usage(&bytes, false)))
     }
 
-    async fn chat(
+    async fn chat_with_usage(
         &self,
         config: &Value,
         model: &str,
         messages: &[Message],
         tools: &[FunctionTool],
         choice: Option<&ToolChoice>,
-    ) -> Result<AssistantMessage> {
+    ) -> Result<(AssistantMessage, Usage)> {
         let mut body =
             json!({"model":model,"messages":self.message_params(messages)?,"stream":self.alibaba});
         if self.alibaba {
@@ -431,10 +457,51 @@ impl Dialect for OpenAi {
         }
         let response = self.post(config, &["chat", "completions"], body).await?;
         let bytes = read_response(response).await?;
-        if self.alibaba {
+        let response = if self.alibaba {
             streamed_assistant(&bytes)
         } else {
             assistant(&bytes)
+        }?;
+        Ok((response, response_usage(&bytes, self.alibaba)))
+    }
+}
+
+fn response_usage(bytes: &[u8], stream: bool) -> Usage {
+    fn read(value: &Value) -> Usage {
+        let total = |name: &str| {
+            value
+                .get("usage")
+                .and_then(|v| v.get(name))
+                .and_then(Value::as_u64)
+                .filter(|v| *v <= i64::MAX as u64)
+        };
+        Usage {
+            input_tokens: total("prompt_tokens"),
+            output_tokens: total("completion_tokens"),
         }
     }
+    if !stream {
+        return serde_json::from_slice::<Value>(bytes)
+            .map(|v| read(&v))
+            .unwrap_or_default();
+    }
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return Usage::default();
+    };
+    let mut data = Vec::new();
+    let mut usage = Usage::default();
+    for line in text.lines().chain(std::iter::once("")) {
+        if let Some(value) = line.strip_prefix("data:") {
+            data.push(value.strip_prefix(' ').unwrap_or(value));
+        } else if line.is_empty() && !data.is_empty() {
+            let event = data.join("\n");
+            data.clear();
+            if let Ok(value) = serde_json::from_str::<Value>(&event)
+                && value.get("usage").is_some_and(Value::is_object)
+            {
+                usage = read(&value);
+            }
+        }
+    }
+    usage
 }

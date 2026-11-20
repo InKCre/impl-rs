@@ -24,6 +24,22 @@ expected_backend 与实际启动选择不一致返回 409。观测容量不足�
 
 POST /telemetry/v1/{signal} 接受未压缩的 application/x-protobuf，复用 Peer JWT，最多 256 KiB 和 4 个并发请求。Relay 解码对应的标准 OTLP request，向已配置目的地转发，并校验标准 response。发送方无法指定目的地或转发认证 header。上游凭据只来自本机配置。重定向保持关闭。无可用信号返回 503，格式无效返回 400，媒体类型或压缩不支持返回 415，上游失败返回固定的 502。
 
-Loki 和 Relay 的关闭会撤销本机连接并取消在途网络 future。Loki 保留既有的有界排空过程，OTLP relay 仅对显式请求转发。应用自身的自动 span/metric exporter 与通用 tracing 桥接另由 Trace API 接入。
+Loki 和 Relay 的关闭会撤销本机连接并取消在途网络 future。Loki 保留既有的有界排空过程，OTLP relay 仅对显式请求转发。应用自身的固定 metadata span、event 和 metric 使用下述 Trace API 导出。通用 tracing subscriber 不会把任意日志或字段桥接到外部 backend。
 
 Loki/OTLP 已通过独占本地 PostgreSQL 加 loopback HTTP 接收端验收，覆盖私有认证、默认内容过滤及显式放行、Loki 查询与 lookahead、三种 OTLP 信号、无效 protobuf、媒体与体积边界、上游失败和禁用重定向。无效 Loki 私有配置保持所选 backend 不可用，独立启用的 OTLP relay 仍可工作。PostgreSQL 既有 HTTP 旅程已回归通过。
+
+## 原生 Trace API 与因果传播
+
+`Runtime::start_telemetry` 从本实例已准入的 Relay 连接初始化标准 OTLP protobuf 导出器。Resource 包含 core-rs、版本、本实例 UUID、Peer 和 deployment UUID；不会运行环境 resource detector。未启用或没有可用信号时，不注册全局 provider，也不改变业务 readiness。HTTP middleware 只在至少一个信号可用时建立 http.server scope。
+
+SDK 调用者通过 `Core::operation`、`client_operation`、`server_operation` 和 `linked_operation` 建立固定名称 scope。`run` 根据 Result 分类 success/error，`scope` 允许业务显式设定 Outcome；已进入 scope 的 future 被取消时记录 cancelled。错误类型、状态和准入属性可以显式设置，API 不读取错误消息、Debug、请求内容或堆栈。`Core::record_event` 同时发送本机记录和可选 OTLP event log。`record_ai_usage` 将已知非负整数与未知字段分别计数。
+
+上下文属于当前 Runtime，并经 Tokio task-local 在 scope 内传递。`Core::trace_scope` 的显式快照可以带入新 spawned task；不同 Core 实例不会共享上下文。scope 在构造异步状态前装箱内部 future，避免多层 AI/Agent scope 放大默认 Tokio 栈。传播使用标准 W3C parser，仅接受不超过 512 字节的 traceparent/tracestate，不传播 baggage。只有 traces 信号可用时才创建有效 span。
+
+HTTP 只记录方法、route 模板和响应状态。Job 的所有事务提交入口在没有显式 carrier 时捕获当前 scope；Cron 物化因此也保存自身 span carrier。Worker 领取成功后建立独立 job.execute trace，通过 link 指向提交时的 span，handler task 显式继承执行 scope。执行结束与 handler 取消不改写已持久化的 Job 业务效果。
+
+AI 的 ai.chat/ai.embed scope 记录目录模型标识、方言、能力类型和数值 usage。OpenAI 与 Alibaba SSE 响应仅抽取明确的 token 数值；自定义 Dialect 可以覆写 usage-aware 方法，旧适配器保留默认未知 usage 的兼容性。Agent 记录 agent.turn、agent.step、agent.tool，包含会话、轮次、模型调用次数与终止类型。provider 生成的 tool-call ID 仅以 SHA-256 摘要进入运营 span。Prompt、system message、tool schema/arguments/results、模型输出、provider key 与连接 URL 均不进入这些 span。
+
+Trace 与 event-log 各有 256 条等待队列，批次最多 256，最长 5 秒触发导出。失败批次不重试，不影响调用者。累计 metrics 每 30 秒导出，最多保留 2000 组 instrument/label；duration 使用固定 14 个秒级边界，计数器保留整数精度。metadata 最多 64 个字段，字符串限制 256 字符，数组限制 32 项，并按显式白名单过滤。记录关闭拒绝新输入，三信号并发排空，每个任务最多等待 32 秒；未完成记录计入 exporter dropped，再撤销 Relay 私有连接并关闭数据库。
+
+已以真实 HTTP、原生 PostgreSQL、独立 Worker 和 loopback protobuf 接收端验证：远端 parent、持久 Job carrier、独立 execution link、handler/event 关联、实例隔离、取消 scope、三信号排空和 2 万事件压力下的有界丢弃。真实 Agent 两轮模型调用及 tool、AI chat/embed usage 和 Cron 物化均通过；检查导出 wire 不含 fixture 的业务内容、凭据或原始 tool-call ID。未引入自动化测试套件或数据库 migration。
