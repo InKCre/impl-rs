@@ -14,8 +14,9 @@ use std::{
 use inkcre_extension_sdk::{
     DISTRIBUTION, Descriptor, HOST_STORAGE_SERVICE, HostStorageAccess, HostStorageCall,
     InvokeParams, MAX_FRAME_BYTES, MAX_HTTP_FRAME_BYTES, MAX_RESOLVER_FRAME_BYTES,
-    MAX_STORAGE_FRAME_BYTES, Manifest, PROTOCOL_VERSION, RESOLVER_VALUE_SERVICE, Request, Response,
-    SDK_VERSION, StartContext, read_frame_with_limit, validate_name, write_frame_with_limit,
+    MAX_STORAGE_FRAME_BYTES, Manifest, PROTOCOL_VERSION, RESOLVER_STORAGE_MATERIALIZATION_SERVICE,
+    RESOLVER_VALUE_SERVICE, Request, Response, SDK_VERSION, StartContext, read_frame_with_limit,
+    validate_name, write_frame_with_limit,
 };
 use semver::{Version, VersionReq};
 use serde::Serialize;
@@ -129,6 +130,7 @@ struct Process {
     core: Core,
     storage_wire: AtomicBool,
     resolver_wire: AtomicBool,
+    resolver_materialization_wire: AtomicBool,
 }
 
 struct ProtocolIo {
@@ -271,6 +273,7 @@ impl Process {
             core,
             storage_wire: AtomicBool::new(false),
             resolver_wire: AtomicBool::new(false),
+            resolver_materialization_wire: AtomicBool::new(false),
         })
     }
 
@@ -357,7 +360,13 @@ impl Process {
         let operation = async {
             let storage_wire = self.storage_wire.load(Ordering::Acquire);
             let access = storage_wire
-                .then(|| HostStorageAccess::for_method(method))
+                .then(|| {
+                    HostStorageAccess::for_request(
+                        method,
+                        &request.params,
+                        self.resolver_materialization_wire.load(Ordering::Acquire),
+                    )
+                })
                 .flatten();
             let limit = if method == "http_request" {
                 MAX_HTTP_FRAME_BYTES
@@ -708,7 +717,11 @@ impl ExtensionHost {
                 process
                     .call(
                         "initialize",
-                        json!({"host_sdk_version": SDK_VERSION, "host_services": [HOST_STORAGE_SERVICE, RESOLVER_VALUE_SERVICE]}),
+                        json!({"host_sdk_version": SDK_VERSION, "host_services": [
+                            HOST_STORAGE_SERVICE,
+                            RESOLVER_VALUE_SERVICE,
+                            RESOLVER_STORAGE_MATERIALIZATION_SERVICE,
+                        ]}),
                         Some(CALL_TIMEOUT),
                     )
                     .await?,
@@ -724,8 +737,14 @@ impl ExtensionHost {
                 return Err(Error::Invalid("config schema 必须为对象".into()));
             }
             descriptor.capabilities.validate()?;
-            process.storage_wire.store(descriptor.sdk_version >= Version::new(0, 1, 2), Ordering::Release);
-            process.resolver_wire.store(descriptor.sdk_version >= Version::new(0, 1, 3), Ordering::Release);
+            process.storage_wire.store(
+                descriptor.sdk_version >= Version::new(0, 1, 2),
+                Ordering::Release,
+            );
+            process.resolver_wire.store(
+                descriptor.sdk_version >= Version::new(0, 1, 3),
+                Ordering::Release,
+            );
             Ok(descriptor)
         }
         .await;
@@ -837,6 +856,10 @@ impl ExtensionHost {
                     "启动期间 selection 或 enabled 已改变".into(),
                 ));
             }
+            process.resolver_materialization_wire.store(
+                descriptor.sdk_version >= Version::new(0, 1, 4),
+                Ordering::Release,
+            );
             adapters::publish(self, manifest, descriptor, process, false).await?;
             let current = self
                 .core

@@ -148,8 +148,23 @@ impl ResolverAdapter {
     async fn read(
         &self,
         context: &k::ResolverContext,
-        operation: wire::ResolverOperation,
+        mut operation: wire::ResolverOperation,
     ) -> k::Result<k::ReadValue> {
+        if self.link.knowledge_only {
+            match &mut operation {
+                wire::ResolverOperation::Solve {
+                    materialize_missing,
+                    ..
+                }
+                | wire::ResolverOperation::Text {
+                    materialize_missing,
+                    ..
+                } => {
+                    *materialize_missing = false;
+                }
+                _ => {}
+            }
+        }
         let refresh = match operation {
             wire::ResolverOperation::Solve { refresh, .. }
             | wire::ResolverOperation::Text { refresh, .. }

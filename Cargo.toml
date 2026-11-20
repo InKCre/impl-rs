@@ -26,7 +26,7 @@ repository = "https://github.com/InKCre/impl-rs"
 
 [workspace.dependencies]
 inkcre-core = { path = "crates/core", version = "0.1.0" }
-inkcre-extension-sdk = { path = "vendor/ext-reg/runtimes/core-rs", version = "0.1.3" }
+inkcre-extension-sdk = { path = "vendor/ext-reg/runtimes/core-rs", version = "0.1.4" }
 async-trait = "0.1"
 axum = "0.8"
 base64 = "0.22"

@@ -73,7 +73,36 @@ impl Extension for Mail {
                 draft: None,
             });
         }
-        Descriptor{name:"inkcre/mail".into(),version:env!("CARGO_PKG_VERSION").parse().expect("static version"),sdk_version:SDK_VERSION.parse().expect("static SDK"),protocol_version:PROTOCOL_VERSION,config_schema:schema::<ExtensionConfig>(),methods:vec!["materialize_mime_part".into()],capabilities:Capabilities{resolvers,sources:vec![SourceCapability{id:SOURCE.into(),description:Some("Collect ordinary Mail since Source creation or an explicit historical interval over IMAP.".into()),config_schema,collect_config_schema:schema::<Collect>(),backfill_config_schema:Some(schema::<Backfill>())}],http_ingress:Some(HttpIngress{routes:vec![HttpRoute{method:"POST".into(),path:MATERIALIZE_PATH.into(),path_match:HttpPathMatch::Exact,auth:HttpAuth::Peer}],peer_inbounds:vec![PeerHttpInbound{capability:MATERIALIZE.into(),method:"POST".into(),path:MATERIALIZE_PATH.into()}]}),..Default::default()}}
+        Descriptor {
+            name: "inkcre/mail".into(),
+            version: env!("CARGO_PKG_VERSION").parse().expect("static version"),
+            sdk_version: SDK_VERSION.parse().expect("static SDK"),
+            protocol_version: PROTOCOL_VERSION,
+            config_schema: schema::<ExtensionConfig>(),
+            methods: vec!["materialize_mime_part".into()],
+            capabilities: Capabilities {
+                passive_knowledge: true,
+                resolvers,
+                sources: vec![SourceCapability {
+                    id: SOURCE.into(),
+                    description: Some("Collect ordinary Mail since Source creation or an explicit historical interval over IMAP.".into()),
+                    config_schema,
+                    collect_config_schema: schema::<Collect>(),
+                    backfill_config_schema: Some(schema::<Backfill>()),
+                }],
+                http_ingress: Some(HttpIngress {
+                    routes: vec![HttpRoute {
+                        method: "POST".into(), path: MATERIALIZE_PATH.into(),
+                        path_match: HttpPathMatch::Exact, auth: HttpAuth::Peer,
+                    }],
+                    peer_inbounds: vec![PeerHttpInbound {
+                        capability: MATERIALIZE.into(), method: "POST".into(),
+                        path: MATERIALIZE_PATH.into(),
+                    }],
+                }),
+                ..Default::default()
+            },
+        }
     }
     async fn start_knowledge(
         &mut self,
