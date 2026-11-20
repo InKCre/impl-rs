@@ -64,6 +64,18 @@ pub(crate) fn database_write(error: inkcre_core::Error) -> ApiError {
     error.into()
 }
 
+/// Ordinary command admission treats an unknown type or unsupported command as invalid input.
+/// Missing Source/Sink/Agent records retain their independent 404 semantics.
+pub(crate) fn command_admission(error: inkcre_core::Error) -> ApiError {
+    match error {
+        inkcre_core::Error::NotFound("job type") => ApiError::invalid("unknown Job type"),
+        inkcre_core::Error::Unsupported(_) => {
+            ApiError::invalid("command type does not support this operation")
+        }
+        error => error.into(),
+    }
+}
+
 impl From<inkcre_core::Error> for ApiError {
     fn from(error: inkcre_core::Error) -> Self {
         use inkcre_core::Error;

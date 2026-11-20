@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{OriginalUri, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -113,22 +113,61 @@ async fn source_get(
     ))
 }
 
+fn resource_location(uri: &axum::http::Uri, path: String) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    if !crate::routes::legacy_uri(uri) {
+        headers.insert(
+            header::LOCATION,
+            path.parse().expect("generated resource URI"),
+        );
+    }
+    headers
+}
+fn write_error(uri: &axum::http::Uri, error: inkcre_core::Error) -> ApiError {
+    if crate::routes::legacy_uri(uri) {
+        error.into()
+    } else {
+        crate::error::database_write(error)
+    }
+}
+fn admission_error(uri: &axum::http::Uri, error: inkcre_core::Error) -> ApiError {
+    if crate::routes::legacy_uri(uri) {
+        error.into()
+    } else {
+        crate::error::command_admission(error)
+    }
+}
+
 async fn source_create(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<SourceInput>,
-) -> ApiResult<(StatusCode, Json<Source>)> {
+) -> ApiResult<(StatusCode, HeaderMap, Json<Source>)> {
+    let source = state
+        .core
+        .source_create(input)
+        .await
+        .map_err(|error| write_error(&uri, error))?;
     Ok((
         StatusCode::CREATED,
-        Json(state.core.source_create(input).await?),
+        resource_location(&uri, format!("/sources/{}", source.id)),
+        Json(source),
     ))
 }
 
 async fn source_patch(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i32>,
     ApiJson(input): ApiJson<SourcePatch>,
 ) -> ApiResult<Json<Source>> {
-    Ok(Json(state.core.source_patch(id, input).await?))
+    Ok(Json(
+        state
+            .core
+            .source_patch(id, input)
+            .await
+            .map_err(|error| write_error(&uri, error))?,
+    ))
 }
 
 async fn source_delete(
@@ -291,20 +330,34 @@ async fn cron_get(
 
 async fn cron_create(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<CronInput>,
-) -> ApiResult<(StatusCode, Json<Cron>)> {
+) -> ApiResult<(StatusCode, HeaderMap, Json<Cron>)> {
+    let cron = state
+        .core
+        .cron_create(input)
+        .await
+        .map_err(|error| admission_error(&uri, error))?;
     Ok((
         StatusCode::CREATED,
-        Json(state.core.cron_create(input).await?),
+        resource_location(&uri, format!("/crons/{}", cron.id)),
+        Json(cron),
     ))
 }
 
 async fn cron_patch(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i64>,
     ApiJson(input): ApiJson<CronPatch>,
 ) -> ApiResult<Json<Cron>> {
-    Ok(Json(state.core.cron_patch(id, input).await?))
+    Ok(Json(
+        state
+            .core
+            .cron_patch(id, input)
+            .await
+            .map_err(|error| admission_error(&uri, error))?,
+    ))
 }
 
 async fn cron_delete(
@@ -321,8 +374,12 @@ async fn cron_run(
     State(state): State<AppState>,
     OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i64>,
-) -> ApiResult<(StatusCode, Json<Job>)> {
-    let job = state.core.cron_run_now(id).await?;
+) -> ApiResult<(StatusCode, HeaderMap, Json<Job>)> {
+    let job = state
+        .core
+        .cron_run_now(id)
+        .await
+        .map_err(|error| admission_error(&uri, error))?;
     notify(&state, &job);
     Ok((
         if crate::routes::legacy_uri(&uri) {
@@ -330,6 +387,7 @@ async fn cron_run(
         } else {
             StatusCode::CREATED
         },
+        resource_location(&uri, format!("/jobs/{}", job.id)),
         Json(job),
     ))
 }

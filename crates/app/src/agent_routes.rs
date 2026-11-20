@@ -4,7 +4,7 @@ use crate::{
 };
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{OriginalUri, State},
     http::{StatusCode, header},
     routing::get,
 };
@@ -46,13 +46,20 @@ async fn read(
 }
 async fn create(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiJson(form): ApiJson<Form>,
 ) -> ApiResult<(
     StatusCode,
     [(header::HeaderName, String); 1],
     Json<Definition>,
 )> {
-    let definition = state.core.agent_create(form).await?;
+    let definition = state.core.agent_create(form).await.map_err(|error| {
+        if crate::routes::legacy_uri(&uri) {
+            ApiError::from(error)
+        } else {
+            crate::error::database_write(error)
+        }
+    })?;
     Ok((
         StatusCode::CREATED,
         [(header::LOCATION, format!("/agents/{}", definition.id))],
@@ -61,10 +68,19 @@ async fn create(
 }
 async fn patch(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i64>,
     ApiJson(value): ApiJson<Value>,
 ) -> ApiResult<Json<Definition>> {
-    Ok(Json(state.core.agent_patch(id, value).await?))
+    Ok(Json(state.core.agent_patch(id, value).await.map_err(
+        |error| {
+            if crate::routes::legacy_uri(&uri) {
+                ApiError::from(error)
+            } else {
+                crate::error::database_write(error)
+            }
+        },
+    )?))
 }
 async fn delete(State(state): State<AppState>, ApiPath(id): ApiPath<i64>) -> ApiResult<StatusCode> {
     if state.core.agent_delete(id).await? {

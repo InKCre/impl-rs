@@ -1097,18 +1097,28 @@ async fn job_submit(
     State(state): State<AppState>,
     OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<inkcre_core::JobInput>,
-) -> ApiResult<(StatusCode, Json<inkcre_core::Job>)> {
+) -> ApiResult<(StatusCode, HeaderMap, Json<inkcre_core::Job>)> {
+    let legacy = legacy_uri(&uri);
     let job = state.core.job_submit(input).await.map_err(|error| {
-        if !legacy_uri(&uri) && matches!(&error, inkcre_core::Error::NotFound("job type")) {
-            ApiError::invalid("unknown Job type")
-        } else {
+        if legacy {
             error.into()
+        } else {
+            crate::error::command_admission(error)
         }
     })?;
     if let Some(worker) = &state.worker {
         worker.notify_job(job.id);
     }
-    Ok((StatusCode::CREATED, Json(job)))
+    let mut headers = HeaderMap::new();
+    if !legacy {
+        headers.insert(
+            header::LOCATION,
+            format!("/jobs/{}", job.id)
+                .parse()
+                .expect("generated Job URI"),
+        );
+    }
+    Ok((StatusCode::CREATED, headers, Json(job)))
 }
 
 async fn job_delete(
