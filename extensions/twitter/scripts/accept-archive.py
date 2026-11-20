@@ -38,6 +38,7 @@ media = prefix + "80"
 missing = prefix + "79"
 marker = "twitter-archive-" + uuid.uuid4().hex
 recovery = root / ".runtime/twitter-archive-restore.private.json"
+session_lifetime_seconds = 16
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -55,7 +56,7 @@ with tempfile.TemporaryDirectory(dir=root / ".runtime") as tmp:
         work,
     )
     j.env["INKCRE_PEER_LEASE_SECONDS"] = "3"
-    j.env["TWITTER_X_MONKEY_JWT_LIFETIME_SECONDS"] = "8"
+    j.env["TWITTER_X_MONKEY_JWT_LIFETIME_SECONDS"] = str(session_lifetime_seconds)
     db = psycopg.connect(dsn, autocommit=True)
     snapshot = db.execute(
         "SELECT config,state FROM inkcre.extensions WHERE name='inkcre/twitter'"
@@ -326,13 +327,16 @@ with tempfile.TemporaryDirectory(dir=root / ".runtime") as tmp:
             "UPDATE inkcre.blocks SET content=%s WHERE id=%s",
             (json.dumps(body["media"][0]), mediaid),
         )
-        time.sleep(4.2)
+        # Start the renewal window after the archive checks finish.
+        _, headers = request("POST", "/twitter/x-monkey/session", {}, peer=True)
+        renewal_cookie = cookie_from(headers)
+        time.sleep(session_lifetime_seconds / 2 + 0.25)
         renewed, headers = request(
-            "GET", "/twitter/x-monkey/api/v1/session", cookie=cookie
+            "GET", "/twitter/x-monkey/api/v1/session", cookie=renewal_cookie
         )
         assert renewed["authenticated"] and headers.get_all("Set-Cookie")
         renewedcookie = cookie_from(headers)
-        assert renewedcookie != cookie
+        assert renewedcookie != renewal_cookie
         _, headers = request(
             "GET",
             "/twitter/x-monkey/api/v1/session",
