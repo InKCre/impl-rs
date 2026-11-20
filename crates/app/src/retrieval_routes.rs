@@ -86,11 +86,11 @@ async fn retrieve_semantic(
     }
     for item in &mut result.matches {
         if !(-1.0..=1.0).contains(&item.score)
-            || !item
+            || item
                 .entity
                 .get("id")
                 .and_then(serde_json::Value::as_i64)
-                .is_some_and(|id| id > 0)
+                .is_none_or(|id| id <= 0)
         {
             return Err(invalid_response());
         }
