@@ -1,7 +1,7 @@
 use crate::{
     Action, ConfigAction, Input, Resource,
-    http::{Client, Failure},
-    segment,
+    http::{Client, Failure, InputError},
+    schema, segment,
 };
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -28,51 +28,21 @@ pub(crate) async fn resource(
     let schema_route = match &resource.action {
         Action::Create { input, .. } if input.schema => Some(("POST", base.clone())),
         Action::Update { id, input, .. } if input.schema => {
-            Some(("PATCH", format!("{base}/{}", segment(id)?)))
+            Some(("PATCH", resource_path(group, &base, id)?))
         }
         Action::Set { id, input } if input.schema => {
-            Some(("PUT", format!("{base}/{}", segment(id)?)))
+            Some(("PUT", resource_path(group, &base, id)?))
         }
-        Action::Collect { id, input, .. } if input.schema => {
-            Some(("POST", format!("/sources/{id}/collect")))
+        Action::Collect { id, input, .. } if group == "source" && input.schema => {
+            return source_command_schema(client, *id, "collect_config_schema").await;
         }
-        Action::Backfill { id, input, .. } if input.schema => {
-            Some(("POST", format!("/sources/{id}/backfill")))
+        Action::Backfill { id, input, .. } if group == "source" && input.schema => {
+            return source_command_schema(client, *id, "backfill_config_schema").await;
         }
         _ => None,
     };
     if let Some((method, path)) = schema_route {
-        if group == "source" && (path.ends_with("/collect") || path.ends_with("/backfill")) {
-            let id = path
-                .split('/')
-                .nth(2)
-                .ok_or_else(|| Failure::usage("Source路径无效"))?;
-            let record = client
-                .send("GET", &format!("/sources/{id}"), None, &[])
-                .await?;
-            let type_id = record["type"]
-                .as_str()
-                .ok_or_else(|| Failure::usage("Source缺少type"))?;
-            let catalog = client
-                .send(
-                    "GET",
-                    &format!("/source-types/{}", segment(type_id)?),
-                    None,
-                    &[],
-                )
-                .await?;
-            let field = if path.ends_with("/backfill") {
-                "backfill_config_schema"
-            } else {
-                "collect_config_schema"
-            };
-            return catalog
-                .get(field)
-                .cloned()
-                .filter(Value::is_object)
-                .ok_or_else(|| Failure::usage("该Source不支持所选命令"));
-        }
-        return client.schema(method, &path).await;
+        return resource_schema(client, method, &path, group, &resource.action).await;
     }
     match resource.action {
         Action::Methods {
@@ -219,11 +189,15 @@ pub(crate) async fn resource(
                     .map(|v| v["input_schema"].clone());
             }
             client
-                .send(
+                .send_projected(
                     "PUT",
                     &format!("/configs/{}", segment(&id)?),
                     Some(json!({"schema":schema_id,"value":input.read()?})),
                     &[],
+                    InputError {
+                        strip: &["value"],
+                        selectors: &[("schema", "--schema-id")],
+                    },
                 )
                 .await
         }
@@ -272,17 +246,22 @@ pub(crate) async fn resource(
                 return Err(Failure::usage("--job-type 仅适用于Cron"));
             }
             let mut body = input.read()?;
+            let mut error = InputError::default();
             if let Some(job_type) = job_type {
                 body.as_object_mut()
                     .ok_or_else(|| Failure::usage("创建输入必须为对象"))?
                     .insert("job_type".into(), json!(job_type));
+                error = InputError::selectors(&[("job_type", "--job-type")]);
             }
             if let Some(type_id) = type_id {
                 body.as_object_mut()
                     .ok_or_else(|| Failure::usage("创建输入必须为对象"))?
                     .insert("type".into(), json!(type_id));
+                error = InputError::selectors(&[("type", "--type")]);
             }
-            client.send("POST", &base, Some(body), &[]).await
+            client
+                .send_projected("POST", &base, Some(body), &[], error)
+                .await
         }
         Action::Update {
             id,
@@ -290,6 +269,7 @@ pub(crate) async fn resource(
             input,
         } => {
             let mut body = input.read()?;
+            let mut error = InputError::default();
             if let Some(job_type) = job_type {
                 if group != "cron" {
                     return Err(Failure::usage("--job-type 仅适用于Cron"));
@@ -297,9 +277,16 @@ pub(crate) async fn resource(
                 body.as_object_mut()
                     .ok_or_else(|| Failure::usage("更新输入必须为对象"))?
                     .insert("job_type".into(), json!(job_type));
+                error = InputError::selectors(&[("job_type", "--job-type")]);
             }
             client
-                .send("PATCH", &resource_path(group, &base, &id)?, Some(body), &[])
+                .send_projected(
+                    "PATCH",
+                    &resource_path(group, &base, &id)?,
+                    Some(body),
+                    &[],
+                    error,
+                )
                 .await
         }
         Action::Set { id, input } => {
@@ -438,6 +425,146 @@ pub(crate) async fn resource(
         _ => Err(Failure::usage("该操作不适用于此资源")),
     }
 }
+
+async fn catalog_schema(
+    client: &Client,
+    catalog: &str,
+    id: &str,
+    field: &str,
+) -> Result<Value, Failure> {
+    client
+        .send("GET", &format!("/{catalog}/{}", segment(id)?), None, &[])
+        .await?
+        .get(field)
+        .filter(|schema| schema.is_object() || schema.is_boolean())
+        .cloned()
+        .ok_or_else(|| Failure::usage("类型目录未提供有效的输入 schema"))
+}
+
+async fn source_command_schema(client: &Client, id: i64, field: &str) -> Result<Value, Failure> {
+    let record = client
+        .send("GET", &format!("/sources/{id}"), None, &[])
+        .await?;
+    catalog_schema(
+        client,
+        "source-types",
+        record_identity(&record, "type")?,
+        field,
+    )
+    .await
+}
+
+fn record_identity<'a>(record: &'a Value, field: &str) -> Result<&'a str, Failure> {
+    record[field]
+        .as_str()
+        .ok_or_else(|| Failure::usage("记录未发布类型或 schema 标识"))
+}
+
+async fn resource_schema(
+    client: &Client,
+    method: &str,
+    path: &str,
+    group: &str,
+    action: &Action,
+) -> Result<Value, Failure> {
+    let record;
+    let (catalog, id, field, child_field, omit): (_, _, _, _, &[_]) = match (group, action) {
+        (
+            "job",
+            Action::Create {
+                type_id: Some(id), ..
+            },
+        ) => (
+            "job-types",
+            id.as_str(),
+            "parameters",
+            "parameters_schema",
+            &["type"],
+        ),
+        (
+            "source",
+            Action::Create {
+                type_id: Some(id), ..
+            },
+        ) => (
+            "source-types",
+            id.as_str(),
+            "config",
+            "config_schema",
+            &["type"],
+        ),
+        (
+            "sink",
+            Action::Create {
+                type_id: Some(id), ..
+            },
+        ) => (
+            "sink-types",
+            id.as_str(),
+            "config",
+            "config_schema",
+            &["type"],
+        ),
+        (
+            "cron",
+            Action::Create {
+                job_type: Some(id), ..
+            },
+        )
+        | (
+            "cron",
+            Action::Update {
+                job_type: Some(id), ..
+            },
+        ) => (
+            "job-types",
+            id.as_str(),
+            "job_parameters",
+            "parameters_schema",
+            &["job_type"],
+        ),
+        ("cron", Action::Update { .. }) => {
+            record = client.send("GET", path, None, &[]).await?;
+            (
+                "job-types",
+                record_identity(&record, "job_type")?,
+                "job_parameters",
+                "parameters_schema",
+                &[],
+            )
+        }
+        ("source", Action::Update { .. }) => {
+            record = client.send("GET", path, None, &[]).await?;
+            (
+                "source-types",
+                record_identity(&record, "type")?,
+                "config",
+                "config_schema",
+                &[],
+            )
+        }
+        ("config", Action::Update { .. }) => {
+            record = client.send("GET", path, None, &[]).await?;
+            let mut schema = catalog_schema(
+                client,
+                "config-schemas",
+                record_identity(&record, "schema")?,
+                "input_schema",
+            )
+            .await?;
+            if let Some(object) = schema.as_object_mut() {
+                object.remove("required");
+            }
+            return Ok(schema);
+        }
+        _ => return client.schema(method, path).await,
+    };
+    let child = catalog_schema(client, catalog, id, child_field).await?;
+    let mut schema = client.schema_without(method, path, omit).await?;
+    schema::nested(&mut schema, field, child)?;
+    Ok(schema)
+}
+
 fn resource_path(group: &str, base: &str, id: &str) -> Result<String, Failure> {
     if group == "extension" {
         let mut parts = id.split('/');

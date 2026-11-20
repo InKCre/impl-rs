@@ -2,10 +2,11 @@ mod connection;
 mod http;
 mod output;
 mod resource;
+mod schema;
 use resource::resource;
 
 use clap::{Args, Parser, Subcommand};
-use http::{Client, Failure};
+use http::{Client, Failure, InputError};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
@@ -20,7 +21,7 @@ struct Cli {
     json: bool,
     #[arg(long, global = true)]
     output_dir: Option<PathBuf>,
-    #[arg(long, global = true, conflicts_with = "json")]
+    #[arg(long, global = true, conflicts_with_all = ["json", "output_dir"])]
     table: bool,
     #[arg(long, global = true, value_delimiter = ',')]
     fields: Vec<String>,
@@ -139,7 +140,7 @@ enum Action {
         limit: Option<u32>,
         #[arg(long)]
         cursor: Option<String>,
-        #[arg(long, name = "type")]
+        #[arg(long = "type", visible_alias = "type-id")]
         type_id: Option<String>,
         #[arg(long)]
         status: Option<String>,
@@ -148,7 +149,7 @@ enum Action {
         id: String,
     },
     Create {
-        #[arg(long, name = "type")]
+        #[arg(long = "type", visible_alias = "type-id")]
         type_id: Option<String>,
         #[arg(long)]
         job_type: Option<String>,
@@ -378,7 +379,7 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
                 },
         } => {
             client
-                .send(
+                .send_projected(
                     "POST",
                     "/jobs",
                     Some(json!({
@@ -386,6 +387,7 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
                         "parameters":{"block":block_id},"timeout_seconds":timeout_seconds
                     })),
                     &[],
+                    InputError::selectors(&[("parameters", "block_id")]),
                 )
                 .await
         }
@@ -401,11 +403,15 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
             }
             let question = question.ok_or_else(|| Failure::usage("需要 QUESTION 或 --schema"))?;
             client
-                .send(
+                .send_projected(
                     "POST",
                     &path,
                     Some(json!({"query":question,"timeout_seconds":timeout_seconds})),
                     &[],
+                    InputError::selectors(&[
+                        ("query", "QUESTION"),
+                        ("timeout_seconds", "--timeout-seconds"),
+                    ]),
                 )
                 .await
         }
@@ -504,14 +510,22 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
         Command::Graph { command } => match command {
             Graph::Components { seeds, input } => {
                 if input.schema {
-                    return client.schema("POST", "/graph/components").await;
+                    return client
+                        .schema_without("POST", "/graph/components", &["seed_block_ids"])
+                        .await;
                 }
                 let mut body = input.read()?;
                 body.as_object_mut()
                     .ok_or_else(|| Failure::usage("连通分量输入必须为对象"))?
                     .insert("seed_block_ids".into(), json!(seeds));
                 client
-                    .send("POST", "/graph/components", Some(body), &[])
+                    .send_projected(
+                        "POST",
+                        "/graph/components",
+                        Some(body),
+                        &[],
+                        InputError::selectors(&[("seed_block_ids", "seeds")]),
+                    )
                     .await
             }
 
@@ -525,7 +539,9 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
             }
             Graph::Path { from, to, input } => {
                 if input.schema {
-                    return client.schema("POST", "/graph/path").await;
+                    return client
+                        .schema_without("POST", "/graph/path", &["from_block_id", "to_block_id"])
+                        .await;
                 }
                 let mut body = input.read()?;
                 let object = body
@@ -533,7 +549,18 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
                     .ok_or_else(|| Failure::usage("路径输入必须为对象"))?;
                 object.insert("from_block_id".into(), json!(from));
                 object.insert("to_block_id".into(), json!(to));
-                client.send("POST", "/graph/path", Some(body), &[]).await
+                client
+                    .send_projected(
+                        "POST",
+                        "/graph/path",
+                        Some(body),
+                        &[],
+                        InputError::selectors(&[
+                            ("from_block_id", "--from"),
+                            ("to_block_id", "--to"),
+                        ]),
+                    )
+                    .await
             }
             Graph::Neighborhood {
                 reference,

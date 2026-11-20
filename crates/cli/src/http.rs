@@ -1,4 +1,4 @@
-use crate::connection::Connection;
+use crate::{connection::Connection, schema};
 use reqwest::{Client as HttpClient, Method, Url};
 use serde_json::{Value, json};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -23,6 +23,49 @@ impl Failure {
         }
     }
 }
+
+#[derive(Default)]
+pub struct InputError {
+    pub strip: &'static [&'static str],
+    pub selectors: &'static [(&'static str, &'static str)],
+}
+
+impl InputError {
+    pub fn selectors(selectors: &'static [(&'static str, &'static str)]) -> Self {
+        Self {
+            selectors,
+            ..Self::default()
+        }
+    }
+
+    fn project(&self, detail: &mut Value) {
+        if let Some(items) = detail.as_array_mut() {
+            for item in items {
+                let Some(loc) = item.get_mut("loc").and_then(Value::as_array_mut) else {
+                    continue;
+                };
+                if loc.first().is_none_or(|value| value != "body") {
+                    continue;
+                }
+                loc.remove(0);
+                if let Some(prefix) = loc.get(..self.strip.len())
+                    && prefix
+                        .iter()
+                        .zip(self.strip)
+                        .all(|(value, field)| value == field)
+                {
+                    loc.drain(..self.strip.len());
+                }
+                if let Some(field) = loc.first_mut()
+                    && let Some((_, option)) = self.selectors.iter().find(|(name, _)| field == name)
+                {
+                    *field = json!(option);
+                }
+            }
+        }
+    }
+}
+
 pub struct Client {
     http: HttpClient,
     base: String,
@@ -60,6 +103,18 @@ impl Client {
         path: &str,
         body: Option<Value>,
         query: &[(&str, Option<String>)],
+    ) -> Result<Value, Failure> {
+        self.send_projected(method, path, body, query, InputError::default())
+            .await
+    }
+
+    pub async fn send_projected(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        query: &[(&str, Option<String>)],
+        input: InputError,
     ) -> Result<Value, Failure> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -120,16 +175,8 @@ impl Client {
             let payload = serde_json::from_slice::<Value>(&bytes)
                 .unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)));
             let mut detail = payload.get("detail").cloned().unwrap_or(payload);
-            if status.as_u16() == 422
-                && let Some(items) = detail.as_array_mut()
-            {
-                for item in items {
-                    if let Some(loc) = item.get_mut("loc").and_then(Value::as_array_mut)
-                        && loc.first().is_some_and(|v| v == "body")
-                    {
-                        loc.remove(0);
-                    }
-                }
+            if status.as_u16() == 422 {
+                input.project(&mut detail);
             }
             return Err(Failure {
                 code: 1,
@@ -214,6 +261,15 @@ fn multipart(mime: &str, bytes: &[u8]) -> Result<Value, Failure> {
 
 impl Client {
     pub async fn schema(&self, method: &str, path: &str) -> Result<Value, Failure> {
+        self.schema_without(method, path, &[]).await
+    }
+
+    pub async fn schema_without(
+        &self,
+        method: &str,
+        path: &str,
+        omit: &[&str],
+    ) -> Result<Value, Failure> {
         let document = self.send("GET", "/openapi.json", None, &[]).await?;
         let paths = document["paths"]
             .as_object()
@@ -247,9 +303,8 @@ impl Client {
         if !schema.is_object() {
             return Err(Failure::usage("该操作没有JSON输入schema"));
         }
-        if let Some(components) = document.get("components") {
-            schema["components"] = components.clone();
-        }
+        schema::omit(&mut schema, omit);
+        schema::include_definitions(&mut schema, &document)?;
         Ok(schema)
     }
 }
