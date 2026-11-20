@@ -32,6 +32,7 @@ cp .env.example .env
 | `INKCRE_NO_CRON` | 默认 false；true 时不启动自动 Cron loop，保留按 ID 的显式 run/materialize 入口 |
 | `INKCRE_TOKEN_LIFETIME_SECONDS` | `3600`；`token` 命令签发 JWT 的默认有效期 |
 | `TWITTER_X_MONKEY_JWT_LIFETIME_SECONDS` | `604800`；Twitter x-monkey 浏览器会话的签发和续期时长 |
+| `INKCRE_TWITTER_TWIKIT_RUNTIME` | 可选本机 JSON 的绝对路径，由启用的 Twitter 扩展读取 |
 | `RUST_LOG` | 日志过滤；普通运行不应开启请求参数或 SQL 参数输出 |
 
 完整 CLI 参数见 `inkcre --help`、`inkcre serve --help`。`--env-file <路径>` 显式选择 dotenv 文件。运行目录中的状态文件需要随实例保留；丢失默认 UUID 会产生新的 Peer 身份。
@@ -77,6 +78,17 @@ enable 保存意图后启动插件，initialize 获得该精确分发的 config 
 原生 executable 是可信代码，进程隔离承担生命周期管理。宿主以 `INKCRE_DATABASE_URL` 向受信插件提供 native 数据库能力，凭据不会写进 manifest 或共享扩展 config。初始化和通用 SDK 操作每帧上限为 1 MiB。扩展 HTTP 路由通过独立的 `http_request` 帧传递原始 body，body 上限 45 MiB，传输帧上限 64 MiB。本机 HTTP 层最多同时处理四个扩展 HTTP 请求。
 
 Twitter x-monkey 的浏览器会话由 app 签发和续期，使用归档专属 JWT audience。宿主仅将校验后的会话到期时间交给当前启用的 Twitter 扩展，也可在归档入口校验已有 Python 会话并在续期时转换。将 `http_public_base_url` 设为浏览器可访问的 HTTPS 地址，包含代理前缀时 Cookie 路径也包含该前缀。
+
+选用 Twitter 的 `twikit` backend 时，在本机受信任的 Python 环境安装 `twikit==2.3.3`，并配置两个绝对路径。
+
+```json
+{
+  "python_executable": "/opt/inkcre/twikit/bin/python",
+  "cookies_file": "/var/lib/inkcre/twitter-cookies.json"
+}
+```
+
+将该 JSON 的绝对路径填入 `INKCRE_TWITTER_TWIKIT_RUNTIME`。Unix 上描述文件与解释器须由管理员控制写权限，现有 Cookie 文件须为常规文件且权限为 0600。宿主只向当前启用的 Twitter 子进程提供描述文件路径。Cookie 文件供本机账号会话复用。官方 OAuth backend 可直接运行。
 
 [`inkcre/rss`](../../extensions/rss/README.md) 使用同一 Extension Name、Source 类型与 canonical 图契约提供 RSS/Atom 采集、正文提取、附件保存和三个 Resolver。构建、manifest 坐标与配置见扩展 README；backfill 明确不支持。它使用严格 XML 解析，拒绝损坏或不能对齐条目的文档，不保证 Python feedparser 的容错恢复行为或提取文本逐字相同。游标范围及可恢复投影见 [RSS 设计](../30-unit-tdd/rss-extension.md)。
 

@@ -101,6 +101,7 @@ pub struct ExtensionHost {
     peer_id: Uuid,
     manifest_dir: PathBuf,
     database_url: Option<Arc<str>>,
+    twitter_twikit_runtime: Option<Arc<Path>>,
     jobs: Option<JobRegistry>,
     sources: Option<SourceRuntime>,
     reserved_http_mounts: Arc<HashSet<String>>,
@@ -218,7 +219,12 @@ impl Drop for KillOnCancel {
 }
 
 impl Process {
-    async fn spawn(executable: &Path, database_url: Option<&str>, core: Core) -> Result<Self> {
+    async fn spawn(
+        executable: &Path,
+        database_url: Option<&str>,
+        core: Core,
+        twitter_twikit_runtime: Option<&Path>,
+    ) -> Result<Self> {
         let mut command = Command::new(executable);
         command
             .current_dir(
@@ -229,6 +235,9 @@ impl Process {
             .env_clear();
         if let Some(database_url) = database_url {
             command.env("INKCRE_DATABASE_URL", database_url);
+        }
+        if let Some(path) = twitter_twikit_runtime {
+            command.env("INKCRE_TWITTER_TWIKIT_RUNTIME", path);
         }
         let mut child = command
             .stdin(Stdio::piped())
@@ -477,6 +486,7 @@ impl ExtensionHost {
             peer_id,
             manifest_dir,
             database_url: None,
+            twitter_twikit_runtime: None,
             jobs: None,
             sources: None,
             reserved_http_mounts: Arc::default(),
@@ -488,6 +498,17 @@ impl ExtensionHost {
     pub fn with_database_url(mut self, database_url: String) -> Self {
         self.database_url = Some(database_url.into());
         self
+    }
+
+    /// Grant the trusted runtime descriptor to active Twitter processes on this Peer.
+    pub fn with_twitter_twikit_runtime(mut self, path: PathBuf) -> Result<Self> {
+        if !path.is_absolute() {
+            return Err(Error::Invalid(
+                "Twikit runtime manifest 须使用本机绝对路径".into(),
+            ));
+        }
+        self.twitter_twikit_runtime = Some(path.into());
+        Ok(self)
     }
 
     pub fn with_jobs(mut self, jobs: JobRegistry) -> Self {
@@ -662,7 +683,12 @@ impl ExtensionHost {
         Ok(manifest)
     }
 
-    async fn open_exact(&self, name: &str, version: &str) -> Result<Running> {
+    async fn open_exact(
+        &self,
+        name: &str,
+        version: &str,
+        twitter_twikit_runtime: Option<&Path>,
+    ) -> Result<Running> {
         let manifest = self.read_installed(name, version).await?;
         let directory = self.installed_dir(name, version)?;
         if tokio::fs::try_exists(directory.join(registry::ORIGIN_MARKER)).await? {
@@ -673,6 +699,7 @@ impl ExtensionHost {
                 &directory.join(&manifest.executable),
                 self.database_url.as_deref(),
                 self.core.clone(),
+                twitter_twikit_runtime,
             )
             .await?,
         );
@@ -759,7 +786,12 @@ impl ExtensionHost {
             state.running.remove(name);
         }
         passive::withdraw(state, name).await;
-        let running = self.open_exact(name, &selected.version).await?;
+        let twikit = if name == "inkcre/twitter" {
+            self.twitter_twikit_runtime.as_deref()
+        } else {
+            None
+        };
+        let running = self.open_exact(name, &selected.version, twikit).await?;
         let Running {
             manifest,
             descriptor,

@@ -52,6 +52,9 @@ pub struct ServeArgs {
     #[arg(long, env = "TWITTER_X_MONKEY_JWT_LIFETIME_SECONDS", default_value_t = 604_800,
           value_parser = clap::value_parser!(u64).range(1..))]
     pub twitter_x_monkey_jwt_lifetime_seconds: u64,
+    /// 已启用 Twitter 扩展可读取的本机 Twikit 运行说明文件
+    #[arg(long, env = "INKCRE_TWITTER_TWIKIT_RUNTIME")]
+    pub twitter_twikit_runtime: Option<PathBuf>,
     #[arg(long, env = "INKCRE_BIND", default_value = "127.0.0.1:8000")]
     pub bind: SocketAddr,
     /// 不指定时，在 state-dir 中创建并复用 UUID

@@ -214,6 +214,12 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         .with_jobs(jobs)
         .with_sources(sources)
         .with_reserved_http_mounts(extension_ingress::RESERVED_MOUNTS);
+    let host = match args.twitter_twikit_runtime {
+        Some(path) => host
+            .with_twitter_twikit_runtime(path)
+            .map_err(|error| error.to_string())?,
+        None => host,
+    };
     let lease_valid = Arc::new(AtomicBool::new(true));
     let (stop_tx, mut stop_rx) = watch::channel(false);
     let mut reconcile_stop = stop_rx.clone();

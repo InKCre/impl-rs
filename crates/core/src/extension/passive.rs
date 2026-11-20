@@ -106,7 +106,9 @@ impl ExtensionHost {
     }
 
     async fn start_knowledge(&self, selection: &Participation) -> Result<Option<Running>> {
-        let running = self.open_exact(&selection.name, &selection.version).await?;
+        let running = self
+            .open_exact(&selection.name, &selection.version, None)
+            .await?;
         let result: Result<bool> = async {
             if !self
                 .core
