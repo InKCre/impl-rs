@@ -18,6 +18,8 @@
 
 `solved_value` 和 `invoke_value` 提供 `ReadValue`，由 Resolver 明确返回 JSON 或具体字节。一个对象可同时包含普通 JSON 和嵌套字节。HTTP 使用 JSON Pointer 对应 multipart 部件，MCP 使用该位置对应的 live blob URI。原有 `solved` 和 `invoke` 继续提供 JSON 投影。
 
+SDK 0.1.3 的扩展可通过 `resolver_read_value` 保留同一表示。初始握手协商该能力，已安装旧产物继续走原来的 JSON 路径。Wire 传输接受最大 32 MiB 的单一 bytes 和最大 48 MiB 的 Resolver 消息。
+
 ## 注册与扩展适配
 
 `Resolver` 和 `StorageHandler` 是可注册的 async traits，handler 不捕获所属 Core。执行所需的 Core、Block 和关系上下文由每次调用传入。`Registry` 以 exact contract ID 选择 handler，同一 Arc 的重复注册幂等，不同 handler 抢占同一 ID 明确失败。

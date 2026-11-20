@@ -13,9 +13,9 @@ use std::{
 
 use inkcre_extension_sdk::{
     DISTRIBUTION, Descriptor, HOST_STORAGE_SERVICE, HostStorageAccess, HostStorageCall,
-    InvokeParams, MAX_FRAME_BYTES, MAX_HTTP_FRAME_BYTES, MAX_STORAGE_FRAME_BYTES, Manifest,
-    PROTOCOL_VERSION, Request, Response, SDK_VERSION, StartContext, read_frame_with_limit,
-    validate_name, write_frame_with_limit,
+    InvokeParams, MAX_FRAME_BYTES, MAX_HTTP_FRAME_BYTES, MAX_RESOLVER_FRAME_BYTES,
+    MAX_STORAGE_FRAME_BYTES, Manifest, PROTOCOL_VERSION, RESOLVER_VALUE_SERVICE, Request, Response,
+    SDK_VERSION, StartContext, read_frame_with_limit, validate_name, write_frame_with_limit,
 };
 use semver::{Version, VersionReq};
 use serde::Serialize;
@@ -127,6 +127,7 @@ struct Process {
     io: Mutex<ProtocolIo>,
     core: Core,
     storage_wire: AtomicBool,
+    resolver_wire: AtomicBool,
 }
 
 struct ProtocolIo {
@@ -260,6 +261,7 @@ impl Process {
             }),
             core,
             storage_wire: AtomicBool::new(false),
+            resolver_wire: AtomicBool::new(false),
         })
     }
 
@@ -350,6 +352,9 @@ impl Process {
                 .flatten();
             let limit = if method == "http_request" {
                 MAX_HTTP_FRAME_BYTES
+            } else if method == "resolver_read_value" && self.resolver_wire.load(Ordering::Acquire)
+            {
+                MAX_RESOLVER_FRAME_BYTES
             } else if storage_wire
                 && matches!(
                     method,
@@ -676,7 +681,7 @@ impl ExtensionHost {
                 process
                     .call(
                         "initialize",
-                        json!({"host_sdk_version": SDK_VERSION, "host_services": [HOST_STORAGE_SERVICE]}),
+                        json!({"host_sdk_version": SDK_VERSION, "host_services": [HOST_STORAGE_SERVICE, RESOLVER_VALUE_SERVICE]}),
                         Some(CALL_TIMEOUT),
                     )
                     .await?,
@@ -693,6 +698,7 @@ impl ExtensionHost {
             }
             descriptor.capabilities.validate()?;
             process.storage_wire.store(descriptor.sdk_version >= Version::new(0, 1, 2), Ordering::Release);
+            process.resolver_wire.store(descriptor.sdk_version >= Version::new(0, 1, 3), Ordering::Release);
             Ok(descriptor)
         }
         .await;

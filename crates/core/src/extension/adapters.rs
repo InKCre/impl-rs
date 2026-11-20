@@ -149,17 +149,14 @@ impl ResolverAdapter {
         &self,
         context: &k::ResolverContext,
         operation: wire::ResolverOperation,
-    ) -> k::Result<Value> {
+    ) -> k::Result<k::ReadValue> {
         let refresh = match operation {
             wire::ResolverOperation::Solve { refresh, .. }
             | wire::ResolverOperation::Text { refresh, .. }
             | wire::ResolverOperation::Label { refresh } => refresh,
             wire::ResolverOperation::Read { .. } => false,
         };
-        let content = match context.actual_content(refresh).await? {
-            HydratedContent::Text(text) => wire::Content::Text(text),
-            HydratedContent::Bytes(bytes) => wire::Content::Bytes(bytes),
-        };
+        let content = context.actual_content(refresh).await?;
         let relations =
             if self.capability.relations.include_in || self.capability.relations.include_out {
                 context
@@ -180,29 +177,76 @@ impl ResolverAdapter {
             } else {
                 Vec::new()
             };
-        let block = &context.block;
-        let request = wire::ResolverRequest {
-            resolver: self.capability.id.clone(),
-            input: wire::ResolverInput {
-                block: wire::BlockSnapshot {
-                    id: block.id,
-                    storage: block.storage,
-                    resolver: block.resolver.clone(),
-                    content: block.content.clone(),
-                },
-                content,
-                relations,
-            },
-            operation,
+        let block = wire::BlockSnapshot {
+            id: context.block.id,
+            storage: context.block.storage,
+            resolver: context.block.resolver.clone(),
+            content: context.block.content.clone(),
         };
-        self.link
+        let resolver = self.capability.id.clone();
+        let packed = self.link.process.upgrade().is_some_and(|process| {
+            process
+                .resolver_wire
+                .load(std::sync::atomic::Ordering::Acquire)
+        });
+        let (method, params) = if packed {
+            let content = match content {
+                HydratedContent::Text(text) => wire::ResolverContent::Text(text),
+                HydratedContent::Bytes(bytes) => {
+                    if bytes.len() > wire::MAX_BINARY_CONTENT_BYTES {
+                        return Err(k::Error::InvalidInput(
+                            "Extension Resolver input exceeds byte limit",
+                        ));
+                    }
+                    wire::ResolverContent::Bytes(wire::BinaryContent(bytes))
+                }
+            };
+            (
+                "resolver_read_value",
+                encode(wire::ResolverValueRequest {
+                    resolver,
+                    input: wire::ResolverValueInput {
+                        block,
+                        content,
+                        relations,
+                    },
+                    operation,
+                }),
+            )
+        } else {
+            let content = match content {
+                HydratedContent::Text(text) => wire::Content::Text(text),
+                HydratedContent::Bytes(bytes) => wire::Content::Bytes(bytes),
+            };
+            (
+                "resolver_read",
+                encode(wire::ResolverRequest {
+                    resolver,
+                    input: wire::ResolverInput {
+                        block,
+                        content,
+                        relations,
+                    },
+                    operation,
+                }),
+            )
+        };
+        let result = self
+            .link
             .short(
                 context.knowledge.core(),
-                "resolver_read",
-                encode(request).map_err(knowledge_error)?,
+                method,
+                params.map_err(knowledge_error)?,
             )
             .await
-            .map_err(knowledge_error)
+            .map_err(knowledge_error)?;
+        if packed {
+            serde_json::from_value::<wire::ResolverValue>(result)
+                .map(Into::into)
+                .map_err(|_| k::Error::InvalidInput("Extension Resolver value is invalid"))
+        } else {
+            Ok(k::ReadValue::Json(result))
+        }
     }
 }
 
@@ -272,6 +316,16 @@ impl k::Resolver for ResolverAdapter {
         context: &k::ResolverContext,
         options: k::ReadOptions,
     ) -> k::Result<Value> {
+        self.solve_value(context, options)
+            .await
+            .map(k::ReadValue::into_json)
+    }
+
+    async fn solve_value(
+        &self,
+        context: &k::ResolverContext,
+        options: k::ReadOptions,
+    ) -> k::Result<k::ReadValue> {
         self.read(
             context,
             wire::ResolverOperation::Solve {
@@ -300,7 +354,7 @@ impl k::Resolver for ResolverAdapter {
                 },
             )
             .await?;
-        serde_json::from_value(value)
+        serde_json::from_value(value.into_json())
             .map_err(|_| k::Error::InvalidInput("Extension text result must be string or null"))
     }
 
@@ -308,7 +362,7 @@ impl k::Resolver for ResolverAdapter {
         let value = self
             .read(context, wire::ResolverOperation::Label { refresh })
             .await?;
-        serde_json::from_value(value)
+        serde_json::from_value(value.into_json())
             .map_err(|_| k::Error::InvalidInput("Extension label result must be a string"))
     }
 
@@ -318,6 +372,17 @@ impl k::Resolver for ResolverAdapter {
         method: &str,
         arguments: Value,
     ) -> k::Result<Value> {
+        self.invoke_value(context, method, arguments)
+            .await
+            .map(k::ReadValue::into_json)
+    }
+
+    async fn invoke_value(
+        &self,
+        context: &k::ResolverContext,
+        method: &str,
+        arguments: Value,
+    ) -> k::Result<k::ReadValue> {
         self.read(
             context,
             wire::ResolverOperation::Read {

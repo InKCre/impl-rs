@@ -1,3 +1,4 @@
+use inkcre_extension_sdk::{BinaryContent, ResolverValue};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -71,5 +72,39 @@ impl ReadValue {
             .collect();
         fields.insert("content".into(), Self::Bytes(content));
         Self::Object(fields)
+    }
+}
+
+impl From<ResolverValue> for ReadValue {
+    fn from(value: ResolverValue) -> Self {
+        match value {
+            ResolverValue::Json(value) => Self::Json(value),
+            ResolverValue::Bytes(bytes) => Self::Bytes(bytes.0),
+            ResolverValue::Object(fields) => Self::Object(
+                fields
+                    .into_iter()
+                    .map(|(name, value)| (name, value.into()))
+                    .collect(),
+            ),
+            ResolverValue::Array(values) => {
+                Self::Array(values.into_iter().map(Into::into).collect())
+            }
+        }
+    }
+}
+
+impl From<ReadValue> for ResolverValue {
+    fn from(value: ReadValue) -> Self {
+        match value {
+            ReadValue::Json(value) => Self::Json(value),
+            ReadValue::Bytes(bytes) => Self::Bytes(BinaryContent(bytes)),
+            ReadValue::Object(fields) => Self::Object(
+                fields
+                    .into_iter()
+                    .map(|(name, value)| (name, value.into()))
+                    .collect(),
+            ),
+            ReadValue::Array(values) => Self::Array(values.into_iter().map(Into::into).collect()),
+        }
     }
 }
