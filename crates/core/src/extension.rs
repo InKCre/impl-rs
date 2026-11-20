@@ -12,7 +12,8 @@ use std::{
 };
 
 use inkcre_extension_sdk::{
-    DISTRIBUTION, Descriptor, InvokeParams, MAX_FRAME_BYTES, MAX_HTTP_FRAME_BYTES, Manifest,
+    DISTRIBUTION, Descriptor, HOST_STORAGE_SERVICE, HostStorageAccess, HostStorageCall,
+    InvokeParams, MAX_FRAME_BYTES, MAX_HTTP_FRAME_BYTES, MAX_STORAGE_FRAME_BYTES, Manifest,
     PROTOCOL_VERSION, Request, Response, SDK_VERSION, StartContext, read_frame_with_limit,
     validate_name, write_frame_with_limit,
 };
@@ -38,6 +39,7 @@ mod adapters;
 mod http_ingress;
 mod passive;
 mod registry;
+mod storage_host;
 pub use http_ingress::*;
 pub use registry::register_registry_config;
 
@@ -123,6 +125,8 @@ struct Running {
 struct Process {
     control: Arc<ProcessControl>,
     io: Mutex<ProtocolIo>,
+    core: Core,
+    storage_wire: AtomicBool,
 }
 
 struct ProtocolIo {
@@ -213,7 +217,7 @@ impl Drop for KillOnCancel {
 }
 
 impl Process {
-    async fn spawn(executable: &Path, database_url: Option<&str>) -> Result<Self> {
+    async fn spawn(executable: &Path, database_url: Option<&str>, core: Core) -> Result<Self> {
         let mut command = Command::new(executable);
         command
             .current_dir(
@@ -254,6 +258,8 @@ impl Process {
                 output,
                 next_id: 1,
             }),
+            core,
+            storage_wire: AtomicBool::new(false),
         })
     }
 
@@ -338,16 +344,58 @@ impl Process {
             completed: false,
         };
         let operation = async {
+            let storage_wire = self.storage_wire.load(Ordering::Acquire);
+            let access = storage_wire
+                .then(|| HostStorageAccess::for_method(method))
+                .flatten();
             let limit = if method == "http_request" {
                 MAX_HTTP_FRAME_BYTES
+            } else if storage_wire
+                && matches!(
+                    method,
+                    "storage_read_bytes" | "storage_create_bytes" | "storage_update_bytes"
+                )
+            {
+                MAX_STORAGE_FRAME_BYTES
             } else {
                 MAX_FRAME_BYTES
             };
             write_frame_with_limit(&mut io.input, &request, limit).await?;
-            let frame = read_frame_with_limit(&mut io.output, limit)
+            let mut callback_id = 0u64;
+            let raw = loop {
+                let frame = read_frame_with_limit(
+                    &mut io.output,
+                    if access.is_some() {
+                        limit.max(MAX_STORAGE_FRAME_BYTES)
+                    } else {
+                        limit
+                    },
+                )
                 .await?
                 .ok_or_else(|| Error::Runtime("扩展提前退出".into()))?;
-            let raw: Value = serde_json::from_slice(&frame)?;
+                let frame_len = frame.len() + 1;
+                let raw: Value = serde_json::from_slice(&frame)?;
+                drop(frame);
+                if raw.get("host_call").is_none() {
+                    if frame_len > limit {
+                        return Err(Error::Runtime("扩展响应超过操作帧上限".into()));
+                    }
+                    break raw;
+                }
+                let call: HostStorageCall = serde_json::from_value(raw)?;
+                if frame_len > MAX_STORAGE_FRAME_BYTES
+                    || call.protocol_version != PROTOCOL_VERSION
+                    || callback_id.checked_add(1) != Some(call.host_call)
+                    || !access.is_some_and(|access| access.allows(&call.operation))
+                {
+                    return Err(Error::Runtime(
+                        "扩展 Storage 回调超出会话权限或顺序无效".into(),
+                    ));
+                }
+                callback_id = call.host_call;
+                let reply = storage_host::respond(&self.core, call).await;
+                write_frame_with_limit(&mut io.input, &reply, MAX_STORAGE_FRAME_BYTES).await?;
+            };
             // 显式区分成功的 null 和缺失 result；serde Option 单独无法表达此差异。
             let object = raw
                 .as_object()
@@ -619,6 +667,7 @@ impl ExtensionHost {
             Process::spawn(
                 &directory.join(&manifest.executable),
                 self.database_url.as_deref(),
+                self.core.clone(),
             )
             .await?,
         );
@@ -627,7 +676,7 @@ impl ExtensionHost {
                 process
                     .call(
                         "initialize",
-                        json!({"host_sdk_version": SDK_VERSION}),
+                        json!({"host_sdk_version": SDK_VERSION, "host_services": [HOST_STORAGE_SERVICE]}),
                         Some(CALL_TIMEOUT),
                     )
                     .await?,
@@ -643,6 +692,7 @@ impl ExtensionHost {
                 return Err(Error::Invalid("config schema 必须为对象".into()));
             }
             descriptor.capabilities.validate()?;
+            process.storage_wire.store(descriptor.sdk_version >= Version::new(0, 1, 2), Ordering::Release);
             Ok(descriptor)
         }
         .await;

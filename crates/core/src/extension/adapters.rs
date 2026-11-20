@@ -69,9 +69,22 @@ impl RuntimeLink {
         if !self.selected(core).await? {
             return Err(Error::Conflict("Extension 精确选择已撤回".into()));
         }
-        self.process()?
-            .call(method, params, Some(CALL_TIMEOUT))
-            .await
+        let process = self.process()?;
+        if super::storage_host::is_borrowed_storage() {
+            return process
+                .try_call(method, params)
+                .await?
+                .ok_or_else(|| crate::Error::Conflict("Storage provider is busy".into()).into());
+        }
+        process.call(method, params, Some(CALL_TIMEOUT)).await
+    }
+
+    fn storage_bytes(&self) -> bool {
+        self.process.upgrade().is_some_and(|process| {
+            process
+                .storage_wire
+                .load(std::sync::atomic::Ordering::Acquire)
+        })
     }
 
     async fn long(
@@ -339,6 +352,57 @@ struct StorageAdapter {
     capability: wire::StorageCapability,
 }
 
+impl StorageAdapter {
+    async fn write(
+        &self,
+        core: &Core,
+        storage: &Storage,
+        pointer: Option<&str>,
+        data: &[u8],
+    ) -> k::Result<Value> {
+        let storage = storage_snapshot(storage);
+        let pointer = pointer.map(str::to_owned);
+        let (method, arguments) = if self.link.storage_bytes() {
+            if data.len() > wire::MAX_STORAGE_CONTENT_BYTES {
+                return Err(k::Error::InvalidInput(
+                    "Extension Storage input exceeds byte limit",
+                ));
+            }
+            let method = if pointer.is_some() {
+                "storage_update_bytes"
+            } else {
+                "storage_create_bytes"
+            };
+            (
+                method,
+                encode(wire::StorageBytesWriteRequest {
+                    storage,
+                    pointer,
+                    data: wire::StorageBytes(data.to_vec()),
+                }),
+            )
+        } else {
+            let method = if pointer.is_some() {
+                "storage_update"
+            } else {
+                "storage_create"
+            };
+            (
+                method,
+                encode(wire::StorageWriteRequest {
+                    storage,
+                    pointer,
+                    data: data.to_vec(),
+                }),
+            )
+        };
+        self.link
+            .short(core, method, arguments.map_err(knowledge_error)?)
+            .await
+            .map_err(knowledge_error)
+    }
+}
+
 fn storage_snapshot(storage: &Storage) -> wire::StorageSnapshot {
     wire::StorageSnapshot {
         id: storage.id,
@@ -358,11 +422,16 @@ impl k::StorageHandler for StorageAdapter {
         }
     }
     async fn read(&self, core: &Core, storage: &Storage, pointer: &str) -> k::Result<Vec<u8>> {
+        let packed = self.link.storage_bytes();
         let value = self
             .link
             .short(
                 core,
-                "storage_read",
+                if packed {
+                    "storage_read_bytes"
+                } else {
+                    "storage_read"
+                },
                 encode(wire::StorageReadRequest {
                     storage: storage_snapshot(storage),
                     pointer: pointer.into(),
@@ -371,8 +440,12 @@ impl k::StorageHandler for StorageAdapter {
             )
             .await
             .map_err(knowledge_error)?;
-        serde_json::from_value(value)
-            .map_err(|_| k::Error::InvalidInput("Extension Storage read must return bytes"))
+        if packed {
+            serde_json::from_value::<wire::StorageBytes>(value).map(|bytes| bytes.0)
+        } else {
+            serde_json::from_value(value)
+        }
+        .map_err(|_| k::Error::InvalidInput("Extension Storage read must return bytes"))
     }
     fn writable(&self) -> Option<&dyn k::WritableStorageHandler> {
         (self.capability.writable && !self.link.knowledge_only).then_some(self)
@@ -388,20 +461,7 @@ impl k::WritableStorageHandler for StorageAdapter {
         storage: &Storage,
         data: &[u8],
     ) -> k::Result<String> {
-        let value = self
-            .link
-            .short(
-                core,
-                "storage_create",
-                encode(wire::StorageWriteRequest {
-                    storage: storage_snapshot(storage),
-                    pointer: None,
-                    data: data.to_vec(),
-                })
-                .map_err(knowledge_error)?,
-            )
-            .await
-            .map_err(knowledge_error)?;
+        let value = self.write(core, storage, None, data).await?;
         serde_json::from_value(value)
             .map_err(|_| k::Error::InvalidInput("Extension Storage create must return its pointer"))
     }
@@ -413,20 +473,7 @@ impl k::WritableStorageHandler for StorageAdapter {
         pointer: &str,
         data: &[u8],
     ) -> k::Result<bool> {
-        let value = self
-            .link
-            .short(
-                core,
-                "storage_update",
-                encode(wire::StorageWriteRequest {
-                    storage: storage_snapshot(storage),
-                    pointer: Some(pointer.into()),
-                    data: data.to_vec(),
-                })
-                .map_err(knowledge_error)?,
-            )
-            .await
-            .map_err(knowledge_error)?;
+        let value = self.write(core, storage, Some(pointer), data).await?;
         serde_json::from_value(value)
             .map_err(|_| k::Error::InvalidInput("Extension Storage update must return existence"))
     }

@@ -50,6 +50,10 @@ typed read 方法拥有名称、说明和 JSON input schema。公共方法包括
 
 `WritableStorageHandler` 与只读 Storage capability 分开。外部进程或外部服务上的字节写入有自己的副作用边界，SQL rollback 不能回滚这些外部效果。调用者必须按具体 handler 的契约安排失败清理，不声称存在跨进程事务。
 
+扩展进程可在同一次 stdio 请求中访问当前 Peer 的 Storage。插件自己的 Core 优先使用本地 handler，包括能加入同一图事务的 PostgreSQL 内建 Storage。外部 handler 由宿主按持久 Storage ID 查找。Resolver 回调只读。发现目标进程忙就返回冲突，避免进程相互等待。
+
+SDK 0.1.2 的 Storage 内容上限为 32 MiB。提供方停用后，声明 passive knowledge 的 Storage 仍可读取。宿主通过原生 PostgreSQL 查找 Storage 实例，通过绑定当前进程生命周期的协议传输字节。
+
 impl-py 的 artifact 初始化内建 Storage catalog。Rust 不用语言投影不同的 schema 覆盖这些内建行；扩展贡献的 Storage type 可以由相应运行时发布。
 
 ## 内容准入与 graph draft

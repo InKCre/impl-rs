@@ -11,6 +11,7 @@ mod media;
 mod read_value;
 mod registry;
 mod storage;
+mod storage_bridge;
 mod types;
 
 pub use crate::graph::{DraftBlock, DraftRelation};
@@ -27,6 +28,7 @@ pub use storage::{HttpStorage, HttpStorageConfig, PostgreSqlStorage};
 pub use types::*;
 
 use crate::{Block, BlockInput, BlockPatch, Core, HydratedContent, Relation, Storage};
+use inkcre_extension_sdk::{HostStorageOperation, HostStorageValue, StorageBytes};
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::PgConnection;
@@ -127,11 +129,7 @@ impl Knowledge {
             .storage_get(storage_id)
             .await?
             .ok_or(crate::Error::NotFound("storage"))?;
-        let bytes = self
-            .registry
-            .storage(&storage.type_)?
-            .read(&self.core, &storage, &block.content)
-            .await?;
+        let bytes = self.read_storage(&storage, &block.content, None).await?;
         Ok(HydratedContent::Bytes(bytes))
     }
     pub async fn solved(&self, id: i32, options: ReadOptions) -> Result<Value> {
@@ -165,12 +163,7 @@ impl Knowledge {
                 .storage_get(storage)
                 .await?
                 .ok_or(crate::Error::NotFound("storage"))?;
-            HydratedContent::Bytes(
-                self.registry
-                    .storage(&record.type_)?
-                    .read(&self.core, &record, &input.content)
-                    .await?,
-            )
+            HydratedContent::Bytes(self.read_storage(&record, &input.content, None).await?)
         } else {
             HydratedContent::Text(input.content.clone())
         };
@@ -188,9 +181,7 @@ impl Knowledge {
         let actual = if let Some(storage_id) = input.storage {
             let storage = self.storage_record_in(connection, storage_id).await?;
             HydratedContent::Bytes(
-                self.registry
-                    .storage(&storage.type_)?
-                    .read_in(&self.core, connection, &storage, &input.content)
+                self.read_storage(&storage, &input.content, Some(connection))
                     .await?,
             )
         } else {
@@ -255,6 +246,38 @@ impl Knowledge {
             .await?
             .ok_or_else(|| crate::Error::NotFound("storage").into())
     }
+    pub(crate) async fn read_storage(
+        &self,
+        storage: &Storage,
+        pointer: &str,
+        connection: Option<&mut PgConnection>,
+    ) -> Result<Vec<u8>> {
+        match self.registry.storage(&storage.type_) {
+            Ok(handler) => match connection {
+                Some(connection) => {
+                    handler
+                        .read_in(&self.core, connection, storage, pointer)
+                        .await
+                }
+                None => handler.read(&self.core, storage, pointer).await,
+            },
+            Err(error @ Error::UnknownStorage(_)) => {
+                let value = storage_bridge::call(
+                    HostStorageOperation::Read {
+                        storage: storage.id,
+                        pointer: pointer.into(),
+                    },
+                    error,
+                )
+                .await?;
+                match value {
+                    HostStorageValue::Bytes(bytes) => Ok(bytes.0),
+                    _ => Err(Error::InvalidInput("host Storage read must return bytes")),
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
     pub async fn storage_create(
         &self,
         connection: &mut PgConnection,
@@ -262,7 +285,26 @@ impl Knowledge {
         data: &[u8],
     ) -> Result<String> {
         let storage = self.storage_record_in(connection, storage_id).await?;
-        let handler = self.registry.storage(&storage.type_)?;
+        let handler = match self.registry.storage(&storage.type_) {
+            Ok(handler) => handler,
+            Err(error @ Error::UnknownStorage(_)) => {
+                return match storage_bridge::call(
+                    HostStorageOperation::Create {
+                        storage: storage.id,
+                        data: StorageBytes(data.to_vec()),
+                    },
+                    error,
+                )
+                .await?
+                {
+                    HostStorageValue::Pointer(pointer) => Ok(pointer),
+                    _ => Err(Error::InvalidInput(
+                        "host Storage create must return its pointer",
+                    )),
+                };
+            }
+            Err(error) => return Err(error),
+        };
         let writable = handler
             .writable()
             .ok_or_else(|| Error::Unsupported(format!("Storage {} is read-only", storage.type_)))?;
@@ -278,7 +320,27 @@ impl Knowledge {
         data: &[u8],
     ) -> Result<bool> {
         let storage = self.storage_record_in(connection, storage_id).await?;
-        let handler = self.registry.storage(&storage.type_)?;
+        let handler = match self.registry.storage(&storage.type_) {
+            Ok(handler) => handler,
+            Err(error @ Error::UnknownStorage(_)) => {
+                return match storage_bridge::call(
+                    HostStorageOperation::Update {
+                        storage: storage.id,
+                        pointer: pointer.into(),
+                        data: StorageBytes(data.to_vec()),
+                    },
+                    error,
+                )
+                .await?
+                {
+                    HostStorageValue::Exists(exists) => Ok(exists),
+                    _ => Err(Error::InvalidInput(
+                        "host Storage update must return existence",
+                    )),
+                };
+            }
+            Err(error) => return Err(error),
+        };
         let writable = handler
             .writable()
             .ok_or_else(|| Error::Unsupported(format!("Storage {} is read-only", storage.type_)))?;
@@ -293,7 +355,26 @@ impl Knowledge {
         pointer: &str,
     ) -> Result<bool> {
         let storage = self.storage_record_in(connection, storage_id).await?;
-        let handler = self.registry.storage(&storage.type_)?;
+        let handler = match self.registry.storage(&storage.type_) {
+            Ok(handler) => handler,
+            Err(error @ Error::UnknownStorage(_)) => {
+                return match storage_bridge::call(
+                    HostStorageOperation::Delete {
+                        storage: storage.id,
+                        pointer: pointer.into(),
+                    },
+                    error,
+                )
+                .await?
+                {
+                    HostStorageValue::Exists(exists) => Ok(exists),
+                    _ => Err(Error::InvalidInput(
+                        "host Storage delete must return existence",
+                    )),
+                };
+            }
+            Err(error) => return Err(error),
+        };
         let writable = handler
             .writable()
             .ok_or_else(|| Error::Unsupported(format!("Storage {} is read-only", storage.type_)))?;
