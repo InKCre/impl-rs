@@ -4,6 +4,7 @@
 mod builtins;
 mod draft;
 mod error;
+mod media;
 mod registry;
 mod storage;
 mod types;

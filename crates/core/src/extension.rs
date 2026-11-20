@@ -12,10 +12,10 @@ use std::{
 };
 
 use inkcre_extension_sdk::{
-    Descriptor, InvokeParams, Manifest, PROTOCOL_VERSION, Request, Response, StartContext,
-    read_frame, validate_name, write_frame,
+    DISTRIBUTION, Descriptor, InvokeParams, Manifest, PROTOCOL_VERSION, Request, Response,
+    SDK_VERSION, StartContext, read_frame, validate_name, write_frame,
 };
-use semver::Version;
+use semver::{Version, VersionReq};
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -1001,7 +1001,50 @@ async fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Generate a manifest to save next to a trusted local executable.
+pub async fn local_manifest(name: String, version: &str, path: &Path) -> Result<Manifest> {
+    validate_name(&name)?;
+    let version =
+        Version::parse(version).map_err(|_| Error::Invalid("扩展版本必须为 SemVer".into()))?;
+    let executable = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| Error::Invalid("需要有效的 executable 文件名".into()))?;
+    let file_type = tokio::fs::symlink_metadata(path).await?.file_type();
+    if !file_type.is_file() {
+        return Err(Error::Invalid("需要普通 executable 文件".into()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if tokio::fs::metadata(path).await?.permissions().mode() & 0o111 == 0 {
+            return Err(Error::Invalid("文件缺少执行权限".into()));
+        }
+    }
+    let manifest = Manifest {
+        schema_version: 1,
+        name,
+        version,
+        distribution: DISTRIBUTION.into(),
+        host_sdk: "core-rs".into(),
+        host_sdk_version: VersionReq::parse(&format!("^{SDK_VERSION}"))
+            .map_err(|_| Error::Invalid("宿主 SDK 版本无效".into()))?,
+        protocol_version: PROTOCOL_VERSION,
+        executable: executable.into(),
+        sha256: executable_digest(path).await?,
+    };
+    manifest.validate()?;
+    Ok(manifest)
+}
+
 async fn verify_digest(path: &Path, expected: &str) -> Result<()> {
+    if executable_digest(path).await? != expected {
+        return Err(Error::Invalid("executable SHA-256 不匹配".into()));
+    }
+    Ok(())
+}
+
+async fn executable_digest(path: &Path) -> Result<String> {
     let mut file = tokio::fs::File::open(path).await?;
     let mut digest = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
@@ -1017,8 +1060,5 @@ async fn verify_digest(path: &Path, expected: &str) -> Result<()> {
         }
         digest.update(&buffer[..length]);
     }
-    if format!("{:x}", digest.finalize()) != expected {
-        return Err(Error::Invalid("executable SHA-256 不匹配".into()));
-    }
-    Ok(())
+    Ok(format!("{:x}", digest.finalize()))
 }

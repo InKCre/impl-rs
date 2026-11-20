@@ -21,14 +21,17 @@ app 以 `/api/v1` 暴露这些能力，接口参数见 [HTTP API](http-api.md)�
 | 知识持久化 | 原始 Block/Relation CRUD、组合事务、闭合图邻域、有界最短路径、Resolver drafting 与带局部 ID 映射的事务提交 |
 | Storage | 可注册只读/可写 handler；PostgreSQL bytes C/R/U/D 与 HTTP(S) 有界读取；外部 handler 的副作用不具备跨进程 SQL 原子性 |
 | 知识解释 | exact Resolver registry、typed read、solved/text/label、inline/Storage hydration；内建 text、Markdown、HTML、file 与 Source anchor；尚无 PDF、图像或音视频解码器 |
-| Peer | 稳定身份、保留用户配置的注册、能力 snapshot 与租约；跨 Peer capability discovery、HTTP delegation 和 outcome-unknown 协议尚未实现 |
+| Peer | 稳定身份、保留用户配置的注册、租约与能力快照，支持显式 Peer 的检索委派并保留未知执行结果 |
 | Job | catalog/schema 准入、handler registry、资格判断、pending 发现、原子 claim、并发预算、持久 checkpoint、执行中取消与终态收尾；不自动重试 |
 | 定时与采集 | Source catalog/config/state/anchor、collect/backfill 框架、五段 Cron 与时区；RSS/Atom 实现真实采集、正文和附件，RSS backfill 明确不支持 |
-| 检索与其他第一方扩展 | lexical/semantic/hybrid retrieval、其他 Source/Sink 分发尚未实现 |
-| AI 与业务运行时 | AI providers/models/dialects、Organization、Agent、Sink 及其工具链尚未实现 |
+| 检索 | PostgreSQL 词法投影和 profile 向量空间，维护和重建 Job，应用方可分别获得 hybrid 的两组排名 |
+| 第一方扩展 | RSS/Atom 采集，以及 Capture 和 Bilibili 持久图读取 |
+| AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行。Organization、Agent、Sink 与对应工具链待接入 |
 | 运维与接口 | stderr/HTTP tracing、serve/db-check/token；完整观测查询与业务 CLI 尚未实现 |
 
 知识与 Storage 的事务、读取和缓存边界见 [知识运行时](knowledge-runtime.md)；Job 执行与 Cron 发生见 [任务运行时](job-runtime.md)；RSS 的 canonical 图、游标与 materialization 见 [RSS 分发](rss-extension.md)。扩展通用方法不会自动成为业务 handler，必须通过 SDK capability descriptor 声明并注册 typed adapter。
+
+任务或应用需要搜索时，可分别使用 [词法检索](lexical-retrieval.md)、[语义检索](semantic-retrieval.md) 与 [AI 执行](ai-runtime.md)。HTTP 查询可通过 [Peer 委派](peer-runtime.md) 选择远端执行者，部署配置使用独立的 [配置契约](deployment-config.md)。
 
 app 默认运行 Peer 续租、插件 reconcile、Job worker 与 Cron loop。worker 会发现共享 pending 队列中的本机候选，Cron loop 会为部署级模板创建普通 Job；连接共享库前应按运行目的选择 `--no-worker`、`--no-worker-discovery` 和 `--no-cron`。它们只影响当前进程，不停用其他 Peer 或删除持久配置。
 

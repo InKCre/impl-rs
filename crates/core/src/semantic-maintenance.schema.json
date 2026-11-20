@@ -1,0 +1,56 @@
+{
+  "$defs": {
+    "EmbeddingMaintenanceOptions": {
+      "additionalProperties": false,
+      "description": "Peer-local bounds for one resumable maintenance invocation.",
+      "properties": {
+        "batch_size": {
+          "default": 20,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "diagnostic_limit": {
+          "default": 20,
+          "minimum": 0,
+          "title": "Diagnostic Limit",
+          "type": "integer"
+        },
+        "max_embeddings": {
+          "default": 100,
+          "minimum": 1,
+          "title": "Max Embeddings",
+          "type": "integer"
+        },
+        "scan_page_size": {
+          "default": 100,
+          "minimum": 1,
+          "title": "Scan Page Size",
+          "type": "integer"
+        }
+      },
+      "title": "EmbeddingMaintenanceOptions",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "options": {
+      "$ref": "#/$defs/EmbeddingMaintenanceOptions"
+    },
+    "profile": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Profile"
+    }
+  },
+  "title": "EmbeddingMaintenanceJobParameters",
+  "type": "object"
+}

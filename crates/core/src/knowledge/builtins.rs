@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 pub(crate) fn resolvers() -> Vec<Arc<dyn Resolver>> {
-    vec![
+    let mut resolvers: Vec<Arc<dyn Resolver>> = vec![
         Arc::new(TextResolver {
             kind: TextKind::Text,
         }),
@@ -21,7 +21,9 @@ pub(crate) fn resolvers() -> Vec<Arc<dyn Resolver>> {
         }),
         Arc::new(FileResolver),
         Arc::new(crate::source::SourceAnchorResolver),
-    ]
+    ];
+    resolvers.extend(super::media::resolvers());
+    resolvers
 }
 
 struct FileResolver;

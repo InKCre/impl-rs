@@ -3,24 +3,12 @@
 `inkcre-rss-extension` 是既有 `inkcre/rss` 扩展的 `rust_stdio` 分发，复用独立 extension SDK 和 `inkcre-core`。宿主动态安装并启动独立进程后，扩展注册 RSS、Atom Source 与三个 RSS Resolver；HTTP app 不内置 RSS 采集代码。业务身份、配置、JSON 内容、图关系与 Python 分发共用。
 
 ```sh
-cargo build --locked -p inkcre-rss-extension
+cargo build --locked -p inkcre-app -p inkcre-rss-extension
+target/debug/inkcre extension-manifest --name inkcre/rss --version 0.1.0 \
+  target/debug/inkcre-rss-extension > target/debug/rss.extension.json
 ```
 
-可执行文件为 `target/debug/inkcre-rss-extension`。把 executable 复制到受信目录，依据 [SDK manifest 格式](../../vendor/ext-reg/runtimes/core-rs/README.md) 填写以下坐标与实际 SHA-256：
-
-```json
-{
-  "schema_version": 1,
-  "name": "inkcre/rss",
-  "version": "0.1.0",
-  "distribution": "rust_stdio",
-  "host_sdk": "core-rs",
-  "host_sdk_version": "^0.1.0",
-  "protocol_version": 1,
-  "executable": "inkcre-rss-extension",
-  "sha256": "替换为该可执行文件的64位小写SHA256"
-}
-```
+生成的 manifest 与 executable 位于同一目录。部署时将两者一起复制到受信目录。坐标和摘要规则见 [SDK manifest 格式](../../vendor/ext-reg/runtimes/core-rs/README.md)。
 
 将 manifest 加入宿主的 `INKCRE_EXTENSION_MANIFESTS`，通过扩展接口安装精确版本并启用。插件通过宿主传入的 `INKCRE_DATABASE_URL` 直连既有 PostgreSQL；它不创建自己的 Peer，也不修改 schema。
 

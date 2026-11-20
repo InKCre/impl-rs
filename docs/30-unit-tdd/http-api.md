@@ -1,6 +1,6 @@
 # HTTP API
 
-接入 Rust app 时阅读本文。下表业务路径均相对 `/api/v1`，携带 `Authorization: Bearer <JWT>`；健康检查 `/health/live` 和 `/health/ready` 无需认证。JSON 错误形如 `{"error":{"code":"…","message":"…"}}`，数据库和插件原始错误不会直接返回。接口覆盖 Rust 当前能力，不承诺 Python 的全量 API 兼容。
+接入 Rust app 时阅读本文。业务路径可以直接访问，也可以使用 `/api/v1` 前缀，均要求 `Authorization: Bearer <JWT>`。健康检查 `/health/live` 和 `/health/ready` 无需认证。JSON 错误形如 `{"error":{"code":"…","message":"…"}}`，数据库和插件原始错误不会直接返回。下表覆盖当前实现的能力。
 
 ## 图数据
 
@@ -16,6 +16,10 @@
 | `GET /relations/{id}/neighborhood` | Relation 和其两个端点组成的闭合图 |
 | `POST /graph/neighborhood` | `{block_id,direction?,contents?,limit?,cursor?}` |
 | `GET/POST /graph/path` | source、target、direction、contents、max_hops、max_explored_blocks；POST 使用 JSON body |
+| `POST /graph` | 扁平生产者命令 `{blocks,relations}`，原子保存并返回 `{blocks:[{local_id,id}]}` |
+| `POST /entities/get` | `{entities:[{type,id}],content:"none/raw/hydrated"}`，按输入顺序返回记录或逐项错误 |
+
+`POST /graph` 的新 Block 使用命令局部负 ID，Relation 可引用这些 ID 或既有正 ID。生产者可保存本机尚未加载的 exact Resolver。需要本机校验表示时使用 `/graph/submit`。实体批量响应在存在二进制内容时采用 `multipart/related`，首段包含 `{value,parts}`，其余各段用 Content-ID 与 JSON Pointer 对应。
 
 `direction` 为 `in/out/both`；`contents` 是精确 Relation content 过滤，空数组代表不过滤。GET path 的 contents 是经 URL 编码的 JSON 字符串数组，可完整表达含逗号的内容。路径结果包含 `outcome=found/not_found/limit_reached`、闭合 `graph` 与有序 `block_ids/relation_ids`，不能把预算耗尽当作没有路径。PATCH 省略字段保持原值；Block storage 显式 null 清空，其余非空字段不接受 null。
 
@@ -104,6 +108,27 @@ RSS Source ID 为 `extensions.rss.rss.Source`，Atom 为 `extensions.rss.atom.So
 Cron 默认 enabled，schedule 使用五段 UNIX 格式、分钟粒度，时区接受 IANA 名称。PATCH 支持创建字段，`job_timeout_seconds=null` 恢复 JobType 默认值。materialize 遵守 enabled、当前发生去重及 `last_job` pending/running 的叠加限制；删除模板不删除已生成的 Job。自动 loop 与显式入口都只生产普通 Job，执行统一交给 worker；详细语义见 [Job 与 Cron](job-runtime.md)。
 
 分页一般返回 `items/next_cursor`，limit 默认 50、范围 1–1000，cursor exclusive。Source 按 ID 降序，Cron 按 ID 升序，SourceType 按 ID 字典序升序。
+
+## 检索与配置
+
+| 方法与路径 | 输入与结果 |
+| --- | --- |
+| `POST /lexical-retrieval`、`POST /semantic-retrieval` | 本机执行各自查询与排名 |
+| `POST /retrieval/lexical`、`POST /retrieval/semantic` | 同一查询体。可通过 `route_to_peer` 指定另一个具备相应能力的 Peer |
+| `GET /embedding-profiles`、`GET /embedding-profiles/{id}` | 共享 embedding profile 的分页和单项读取 |
+| `GET /configs`、`GET/PUT/PATCH/DELETE /configs/{key}` | 部署级配置。PUT 使用 `{schema,value}`，PATCH 合并顶层字段并验证完整状态 |
+| `GET /config-schemas`、`GET /config-schemas/{id}` | 本机注册的配置 schema 和对应输入结构 |
+
+查询与维护参数分别见 [词法检索](lexical-retrieval.md)、[语义检索](semantic-retrieval.md) 和 [部署配置](deployment-config.md)。
+
+## AI 模型
+
+| 方法与路径 | 输入与结果 |
+| --- | --- |
+| `GET /ai/models` | 按 ID 升序，`limit` 可选，`cursor` exclusive，返回 `{models,next_cursor}` |
+| `GET /ai/models/{id}` | 共享模型记录，包括声明的能力和启用状态 |
+
+模型目录只返回模型元数据。执行使用 [AI SDK](ai-runtime.md)，调用方通过已配置模型选择相应 provider 与 dialect。
 
 ## 本机扩展
 

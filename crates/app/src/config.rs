@@ -21,6 +21,17 @@ pub enum Command {
     DbCheck(DatabaseArgs),
     /// 签发共享 Peer JWT 并写入标准输出
     Token(TokenArgs),
+    /// 为本机可信插件生成 manifest，输出应保存到 executable 所在目录
+    ExtensionManifest(ExtensionManifestArgs),
+}
+
+#[derive(Args)]
+pub struct ExtensionManifestArgs {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub version: String,
+    pub executable: PathBuf,
 }
 
 #[derive(Args)]

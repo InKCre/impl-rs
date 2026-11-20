@@ -33,6 +33,7 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub core: Core,
+    pub configs: inkcre_core::deployment_config::ConfigRegistry,
     pub host: ExtensionHost,
     pub peer_id: Uuid,
     pub secret: Arc<str>,
@@ -91,7 +92,14 @@ pub fn router(state: AppState) -> Router {
             "/extensions/{name}/participation",
             axum::routing::delete(extension_unselect),
         )
+        .merge(crate::ai_routes::router())
+        .merge(crate::config_routes::router())
+        .merge(crate::entity_routes::router())
         .merge(crate::knowledge_routes::router())
+        .merge(crate::lexical_routes::router())
+        .merge(crate::peer_routes::router())
+        .merge(crate::retrieval_routes::router())
+        .merge(crate::semantic_routes::router())
         .merge(crate::source_routes::router())
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
@@ -100,6 +108,7 @@ pub fn router(state: AppState) -> Router {
             get(|| async { Json(json!({"status":"live"})) }),
         )
         .route("/health/ready", get(ready))
+        .merge(protected.clone())
         .nest("/api/v1", protected)
         .fallback(|| async { ApiError::not_found("route not found") })
         .method_not_allowed_fallback(|| async {

@@ -27,3 +27,9 @@ jobs:
         run: rustup toolchain install 1.93.0 --profile minimal --component rustfmt --component clippy
       - name: Check workspace and independent SDK
         run: bash scripts/check.sh
+      - name: Verify release package assembly
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          cargo build --release --locked --workspace --bins
+          python3 scripts/package_runtime.py .runtime/ci-package
+          .runtime/ci-package/inkcre --version

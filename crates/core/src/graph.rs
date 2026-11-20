@@ -6,6 +6,33 @@ use crate::{Direction, GraphModel, PathOptions, PathOutcome};
 use sqlx::{PgConnection, Postgres, Transaction};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GraphInput {
+    #[serde(default)]
+    pub blocks: Vec<crate::knowledge::DraftBlock>,
+    #[serde(default)]
+    pub relations: Vec<crate::knowledge::DraftRelation>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GraphBlockMapping {
+    pub local_id: i32,
+    pub id: i32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct GraphSubmission {
+    pub blocks: Vec<GraphBlockMapping>,
+}
+
+pub struct EntityRecords {
+    pub blocks: HashMap<i32, Block>,
+    pub relations: HashMap<i32, Relation>,
+}
+
 const BLOCK_COLUMNS: &str = "id,storage,resolver,content,created_at,updated_at";
 const RELATION_COLUMNS: &str = "id,from_,to_,content,updated_at";
 
@@ -69,6 +96,81 @@ impl GraphTransaction<'_> {
 }
 
 impl Core {
+    /// Submit the flat producer protocol, including existing positive endpoints.
+    /// A Peer may persist another Peer’s exact resolver without loading it locally.
+    pub async fn submit_graph(&self, graph: GraphInput) -> Result<GraphSubmission> {
+        let mut ids = HashMap::with_capacity(graph.blocks.len());
+        for input in &graph.blocks {
+            validate_block(&input.block)?;
+            if input.id >= 0 || ids.insert(input.id, 0).is_some() {
+                return Err(Error::InvalidInput(
+                    "new block IDs must be unique and negative".into(),
+                ));
+            }
+        }
+        for endpoint in graph
+            .relations
+            .iter()
+            .flat_map(|edge| [edge.from_, edge.to_])
+        {
+            if endpoint == 0 || (endpoint < 0 && !ids.contains_key(&endpoint)) {
+                return Err(Error::InvalidInput(
+                    "graph relation endpoint is unresolved".into(),
+                ));
+            }
+        }
+        let mut transaction = self.graph_transaction().await?;
+        let mut blocks = Vec::with_capacity(graph.blocks.len());
+        for input in graph.blocks {
+            let saved = transaction.block_create(input.block).await?;
+            ids.insert(input.id, saved.id);
+            blocks.push(GraphBlockMapping {
+                local_id: input.id,
+                id: saved.id,
+            });
+        }
+        for edge in graph.relations {
+            transaction
+                .relation_create(RelationInput {
+                    from_: ids.get(&edge.from_).copied().unwrap_or(edge.from_),
+                    to_: ids.get(&edge.to_).copied().unwrap_or(edge.to_),
+                    content: edge.content,
+                })
+                .await?;
+        }
+        transaction.commit().await?;
+        Ok(GraphSubmission { blocks })
+    }
+
+    /// Read raw records in one consistent snapshot. Hydration can happen after
+    /// returning the connection, including through an external Storage handler.
+    pub async fn entity_records(&self, blocks: &[i32], relations: &[i32]) -> Result<EntityRecords> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *tx)
+            .await?;
+        let blocks: Vec<Block> = sqlx::query_as(&format!(
+            "SELECT {BLOCK_COLUMNS} FROM inkcre.blocks WHERE id=ANY($1)"
+        ))
+        .bind(blocks)
+        .fetch_all(&mut *tx)
+        .await?;
+        let relations: Vec<Relation> = sqlx::query_as(&format!(
+            "SELECT {RELATION_COLUMNS} FROM inkcre.relations WHERE id=ANY($1)"
+        ))
+        .bind(relations)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(EntityRecords {
+            blocks: blocks.into_iter().map(|block| (block.id, block)).collect(),
+            relations: relations
+                .into_iter()
+                .map(|relation| (relation.id, relation))
+                .collect(),
+        })
+    }
+
     pub async fn graph_transaction(&self) -> Result<GraphTransaction<'_>> {
         Ok(GraphTransaction {
             transaction: self.pool().begin().await?,

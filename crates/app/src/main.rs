@@ -1,8 +1,15 @@
+mod ai_routes;
 mod auth;
 mod config;
+mod config_routes;
+mod entity_routes;
 mod error;
 mod knowledge_routes;
+mod lexical_routes;
+mod peer_routes;
+mod retrieval_routes;
 mod routes;
+mod semantic_routes;
 mod source_routes;
 
 use std::{
@@ -64,6 +71,17 @@ async fn run() -> Result<(), String> {
             core.close().await;
             Ok(())
         }
+        Command::ExtensionManifest(args) => {
+            let manifest =
+                inkcre_core::extension::local_manifest(args.name, &args.version, &args.executable)
+                    .await
+                    .map_err(|error| error.to_string())?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&manifest).map_err(|_| "无法序列化 manifest")?
+            );
+            Ok(())
+        }
         Command::Serve(args) => serve(args).await,
     }
 }
@@ -86,7 +104,12 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     let sources = SourceRuntime::new(core.clone());
     let jobs = JobRegistry::new();
-    for handler in sources.job_handlers() {
+    for handler in sources
+        .job_handlers()
+        .into_iter()
+        .chain(inkcre_core::lexical::job_handlers())
+        .chain(inkcre_core::semantic::job_handlers())
+    {
         jobs.register(handler).map_err(|error| error.to_string())?;
     }
     jobs.publish_catalog(&core)
@@ -120,11 +143,17 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         peer_id,
         &args.peer_name,
         env!("CARGO_PKG_VERSION"),
-        &json!({"type":"object","properties":{}}),
+        &json!({
+            "type":"object","additionalProperties":false,"properties":{
+                "http_public_base_url":{"type":["string","null"],"default":null},
+                "extension_registry_url":{"type":["string","null"],"default":null}
+            }
+        }),
     )
     .await
     .map_err(|error| error.to_string())?;
-    core.peer_publish_capabilities(peer_id, &[])
+    let inbounds = retrieval_routes::inbounds();
+    core.peer_publish_http(peer_id, &inbounds)
         .await
         .map_err(|error| error.to_string())?;
     core.peer_renew_lease(peer_id, args.lease_seconds as i32)
@@ -167,7 +196,10 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
                 _=interval.tick()=> {
                     let valid=tokio::select! {
                         _=stop_rx.changed()=>break,
-                        result=lease_core.peer_renew_lease(peer_id,lease_seconds as i32)=>result.is_ok(),
+                        result=async {
+                            lease_core.peer_publish_http(peer_id, &inbounds).await?;
+                            lease_core.peer_renew_lease(peer_id,lease_seconds as i32).await
+                        }=>result.is_ok(),
                     };
                     lease_alive.store(valid,Ordering::Relaxed);
                     if !valid {tracing::warn!("Peer lease renewal failed");}
@@ -223,6 +255,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     });
     let state = routes::AppState {
         core: core.clone(),
+        configs: inkcre_core::deployment_config::ConfigRegistry::default(),
         host: host.clone(),
         peer_id,
         secret: Arc::from(args.jwt_secret),

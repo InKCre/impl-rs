@@ -8,16 +8,21 @@ mod graph;
 mod jobs;
 pub mod knowledge;
 pub mod models;
-mod peer;
+pub mod peer;
 mod storage;
 
+pub mod ai;
 pub mod cron;
+pub mod deployment_config;
 pub mod extension;
+pub mod lexical;
+pub mod retrieval;
+pub mod semantic;
 pub mod source;
 pub mod worker;
 
 pub use error::{Error, Result};
-pub use graph::GraphTransaction;
+pub use graph::{EntityRecords, GraphBlockMapping, GraphInput, GraphSubmission, GraphTransaction};
 pub use models::*;
 pub use sqlx::PgPool;
 

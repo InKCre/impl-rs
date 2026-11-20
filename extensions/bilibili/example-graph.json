@@ -1,0 +1,47 @@
+{
+  "root": -2,
+  "blocks": [
+    {
+      "id": -1,
+      "resolver": "extensions.bilibili.user.v1",
+      "content": "{\"mid\":\"123\",\"name\":\"示例作者\"}"
+    },
+    {
+      "id": -2,
+      "resolver": "extensions.bilibili.folder.v1",
+      "content": "{\"id\":\"456\",\"title\":\"学习收藏\",\"description\":\"示例简介\"}"
+    },
+    {
+      "id": -3,
+      "resolver": "extensions.bilibili.membership.v1",
+      "content": "{\"availability\":\"available\",\"observed_at\":\"2026-11-21T00:00:00Z\"}"
+    },
+    {
+      "id": -4,
+      "resolver": "extensions.bilibili.video.v1",
+      "content": "{\"aid\":\"789\",\"bvid\":\"BV1234567890\",\"title\":\"示例视频\",\"description\":\"视频简介\"}"
+    }
+  ],
+  "relations": [
+    {
+      "from_": -1,
+      "to_": -2,
+      "content": "owns"
+    },
+    {
+      "from_": -2,
+      "to_": -3,
+      "content": "contains"
+    },
+    {
+      "from_": -3,
+      "to_": -4,
+      "content": "item"
+    },
+    {
+      "from_": -4,
+      "to_": -1,
+      "content": "author"
+    }
+  ]
+}

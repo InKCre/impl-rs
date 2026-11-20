@@ -1,5 +1,12 @@
 [workspace]
-members = ["crates/core", "crates/app", "examples/note-extension", "extensions/rss"]
+members = [
+    "crates/core",
+    "crates/app",
+    "examples/note-extension",
+    "extensions/bilibili",
+    "extensions/capture",
+    "extensions/rss",
+]
 exclude = ["vendor/ext-reg/runtimes/core-rs"]
 resolver = "3"
 
@@ -14,6 +21,7 @@ inkcre-core = { path = "crates/core", version = "0.1.0" }
 inkcre-extension-sdk = { path = "vendor/ext-reg/runtimes/core-rs", version = "0.1.0" }
 async-trait = "0.1"
 axum = "0.8"
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"] }

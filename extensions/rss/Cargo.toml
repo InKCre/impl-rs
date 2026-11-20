@@ -6,6 +6,9 @@ rust-version.workspace = true
 description = "InKCre RSS/Atom 原生扩展"
 publish = false
 
+[package.metadata.inkcre]
+extension = "inkcre/rss"
+
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true

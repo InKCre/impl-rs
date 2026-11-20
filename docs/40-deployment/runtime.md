@@ -55,6 +55,10 @@ HTTP 请求默认有 30 秒预算，业务请求体上限为 8 MiB。Source/Job 
 
 启动配置决定可信 manifest catalog。HTTP 只能按 catalog 中的名称和精确版本安装，不能提交任意可执行路径。manifest 包含 `rust_stdio`、`core-rs` SDK 要求、协议版本、相对 executable 路径及 SHA-256。安装复制本地产物、校验摘要并保存当前 Peer 选择，不自动启用。
 
+本地开发者可用 `inkcre extension-manifest --name <namespace/name> --version <semver> <executable>` 生成 manifest，并把输出存到 executable 同一目录。命令使用宿主安装时的同一摘要和大小校验。
+
+构建并整理当前平台的安装目录时，运行 `cargo build --release --locked --workspace --bins`，然后运行 `python3 scripts/package_runtime.py .runtime/staged`。脚本根据 workspace 的扩展 metadata 整理 app、扩展可执行文件和对应 manifest，并在 `source.json` 记录源码及 SDK 提交。部署者将所需扩展 manifest 路径加入启动配置。
+
 enable 保存意图后启动插件，initialize 获得该精确分发的 config schema 和 typed capability descriptor，start 完成后注册本机 Resolver、Storage、Source 或 Job adapter，并复核选择。共享 catalog 中有类型不代表当前 Peer 已加载 handler。配置更新使用当前 Peer 精确 schema，不合并其他分发 schema；运行实例通过停用再启用读取新配置。disable 撤回 adapter、取消在途调用并停止实际子进程；数据库失败时本机停用状态保留，通过 `locally_disabled` 区分尚未同步的共享 enabled。周期 reconcile 处理其他 Peer 修改的启用、移除或版本选择。
 
 原生 executable 是可信代码，进程隔离承担生命周期管理。宿主以 `INKCRE_DATABASE_URL` 向受信插件提供 native 数据库能力；凭据不保存到 manifest 或共享扩展 config。SDK 每帧上限为 1 MiB。

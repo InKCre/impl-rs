@@ -70,6 +70,17 @@ impl Core {
             ("job_types", "description"),
             ("job_types", "parameters_schema"),
             ("job_types", "default_timeout_seconds"),
+            ("configs", "schema"),
+            ("configs", "value"),
+            ("sources", "state"),
+            ("sources_types", "collect_config_schema"),
+            ("crons", "last_scheduled_for"),
+            ("block_lexical_records", "search_vector"),
+            ("ai_models", "capabilities"),
+            ("ai_providers", "config"),
+            ("embedding_profiles", "dimensions"),
+            ("block_embeddings", "embedding"),
+            ("relation_embeddings", "embedding"),
             ("extensions", "name"),
             ("extensions", "nickname"),
             ("extensions", "config"),
@@ -84,13 +95,13 @@ impl Core {
         let columns: Vec<(String, String)> = sqlx::query_as(
             "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='inkcre'",
         ).fetch_all(&mut *transaction).await?;
-        if required
+        if let Some((table, column)) = required
             .iter()
-            .any(|(table, column)| !columns.iter().any(|(t, c)| t == table && c == column))
+            .find(|(table, column)| !columns.iter().any(|(t, c)| t == table && c == column))
         {
-            return Err(Error::Admission(
-                "required protocol columns are unavailable".into(),
-            ));
+            return Err(Error::Admission(format!(
+                "required protocol column inkcre.{table}.{column} is unavailable"
+            )));
         }
         let tables = [
             "blocks",

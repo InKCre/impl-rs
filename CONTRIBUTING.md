@@ -11,3 +11,33 @@
 扩展 SDK 的通用契约在 `ext-reg` 维护。共享 Hub 文档通过 Hub 仓库修改并更新子模块指针，不直接编辑 `docs/_shared`。
 
 `tasks/` 保存本机暂态计划与验收证据，默认忽略；交付所需的长期边界进入上述设计、运行文档和可执行配置。
+
+## 独占开发数据库
+
+本机准备 PostgreSQL 17 或更新版本及匹配的 pgvector，并准备 canonical impl-py checkout，在该 checkout 按其贡献说明用 PDM 安装依赖。Rust 的开发入口调用 Python 所有的数据库生命周期命令，schema 和 migration 随该 checkout 的 revision 确定。
+
+```sh
+python3 scripts/dev_database.py init --impl-py /路径/impl-py
+cargo build --locked --workspace
+python3 scripts/accept_runtime.py --config-json .runtime/dev-database/native-peer.private.json
+```
+
+默认使用 PATH 中的 PostgreSQL 工具和 impl-py 的 `pdm run python`。有多个 PostgreSQL 版本时通过 `--postgres-bin /路径/postgresql/bin` 选择带匹配 pgvector 的版本。复用已安装依赖的 Python 虚拟环境时可传 `--python /路径/venv/bin/python`。
+
+该入口为当前 Rust checkout 创建独占 cluster，绑定随机 loopback 端口，初始化 development profile，并保存 native `inkcre_core` 连接配置。应用直接使用 PostgreSQL。新库不启动 Python worker 或 Cron。密码、JWT secret 和诊断日志只保存在权限受限的 `.runtime/dev-database/`，成功输出包含配置文件路径和 Python source revision。
+
+```sh
+python3 scripts/dev_database.py status
+python3 scripts/dev_database.py stop
+python3 scripts/dev_database.py start
+python3 scripts/dev_database.py destroy
+```
+
+stop/start 保留资料，destroy 停止并删除当前 checkout 所属的整个开发 cluster。验收期间让所有使用者共用同一生命周期，完成验收后再 destroy。初始化失败会停止自建 PostgreSQL并保留私密诊断，修复依赖后执行 destroy/init 重试。运行其他共享环境的配置与数据独立管理。
+
+开发时用 `exec` 将 native 连接与签名参数传给子进程，凭据无需进入命令行或 shell 历史。
+
+```sh
+python3 scripts/dev_database.py exec -- target/debug/inkcre db-check
+python3 scripts/dev_database.py exec -- target/debug/inkcre serve
+```
