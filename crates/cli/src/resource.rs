@@ -155,7 +155,7 @@ pub(crate) async fn resource(
                 .await
         }
 
-        Action::Models { id } if group == "ai" => {
+        Action::Models { id, limit, cursor } if group == "ai" => {
             client
                 .send(
                     "GET",
@@ -166,11 +166,11 @@ pub(crate) async fn resource(
                             .unwrap_or_default()
                     ),
                     None,
-                    &[],
+                    &[("limit", limit.map(|v| v.to_string())), ("cursor", cursor)],
                 )
                 .await
         }
-        Action::Tools { id } if group == "agent" => {
+        Action::Tools { id, limit, cursor } if group == "agent" => {
             client
                 .send(
                     "GET",
@@ -181,11 +181,11 @@ pub(crate) async fn resource(
                             .unwrap_or_default()
                     ),
                     None,
-                    &[],
+                    &[("limit", limit.map(|v| v.to_string())), ("cursor", cursor)],
                 )
                 .await
         }
-        Action::Schemas { id } if group == "config" => {
+        Action::Schemas { id, limit, cursor } if group == "config" => {
             client
                 .send(
                     "GET",
@@ -196,7 +196,7 @@ pub(crate) async fn resource(
                             .unwrap_or_default()
                     ),
                     None,
-                    &[],
+                    &[("limit", limit.map(|v| v.to_string())), ("cursor", cursor)],
                 )
                 .await
         }
@@ -317,7 +317,7 @@ pub(crate) async fn resource(
                 .send("DELETE", &resource_path(group, &base, &id)?, None, &[])
                 .await
         }
-        Action::Types { id } => {
+        Action::Types { id, limit, cursor } => {
             let types = match group {
                 "job" => "job-types",
                 "source" => "source-types",
@@ -335,7 +335,7 @@ pub(crate) async fn resource(
                             .unwrap_or_default()
                     ),
                     None,
-                    &[],
+                    &[("limit", limit.map(|v| v.to_string())), ("cursor", cursor)],
                 )
                 .await
         }
@@ -517,6 +517,7 @@ async fn modify_config(
 fn observed(last: Value) -> Result<Value, Failure> {
     if last.is_null() {
         Err(Failure {
+            http_status: None,
             code: 1,
             detail: json!("观察预算已用尽，尚未取得Job记录"),
         })

@@ -1,12 +1,12 @@
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{OriginalUri, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use inkcre_core::{
-    Job, Page,
+    Job,
     cron::{Cron, CronConfig, CronInput, CronPatch},
     source::{Source, SourceCommand, SourceInput, SourcePatch, SourceType},
 };
@@ -50,27 +50,28 @@ pub fn commands(legacy: bool) -> Router<AppState> {
     }
 }
 
-fn default_limit() -> i64 {
-    50
-}
-
 #[derive(Deserialize)]
 struct TypePage {
-    #[serde(default = "default_limit")]
-    limit: i64,
+    limit: Option<i64>,
     cursor: Option<String>,
 }
 
 async fn source_types(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiQuery(page): ApiQuery<TypePage>,
-) -> ApiResult<Json<Page<SourceType, String>>> {
-    Ok(Json(
-        state
-            .core
-            .source_types(page.limit, page.cursor.as_deref())
-            .await?,
-    ))
+) -> ApiResult<Json<Value>> {
+    crate::routes::resource_page(
+        &uri,
+        "source_types",
+        page.limit,
+        page.cursor,
+        |limit, cursor| {
+            let core = state.core.clone();
+            async move { core.source_types(limit, cursor.as_deref()).await }
+        },
+    )
+    .await
 }
 
 async fn source_type(
@@ -84,16 +85,19 @@ async fn source_type(
 
 #[derive(Deserialize)]
 struct SourcePage {
-    #[serde(default = "default_limit")]
-    limit: i64,
+    limit: Option<i64>,
     cursor: Option<i32>,
 }
 
 async fn sources(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiQuery(page): ApiQuery<SourcePage>,
-) -> ApiResult<Json<Page<Source, i32>>> {
-    Ok(Json(state.core.sources(page.limit, page.cursor).await?))
+) -> ApiResult<Json<Value>> {
+    crate::routes::resource_page(&uri, "sources", page.limit, page.cursor, |limit, cursor| {
+        state.core.sources(limit, cursor)
+    })
+    .await
 }
 
 async fn source_get(
@@ -257,16 +261,19 @@ async fn submit_source(
 
 #[derive(Deserialize)]
 struct CronPage {
-    #[serde(default = "default_limit")]
-    limit: i64,
+    limit: Option<i64>,
     cursor: Option<i64>,
 }
 
 async fn crons(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiQuery(page): ApiQuery<CronPage>,
-) -> ApiResult<Json<Page<Cron, i64>>> {
-    Ok(Json(state.core.crons(page.limit, page.cursor).await?))
+) -> ApiResult<Json<Value>> {
+    crate::routes::resource_page(&uri, "crons", page.limit, page.cursor, |limit, cursor| {
+        state.core.crons(limit, cursor)
+    })
+    .await
 }
 
 async fn cron_get(
@@ -312,11 +319,19 @@ async fn cron_delete(
 
 async fn cron_run(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i64>,
 ) -> ApiResult<(StatusCode, Json<Job>)> {
     let job = state.core.cron_run_now(id).await?;
     notify(&state, &job);
-    Ok((StatusCode::ACCEPTED, Json(job)))
+    Ok((
+        if crate::routes::legacy_uri(&uri) {
+            StatusCode::ACCEPTED
+        } else {
+            StatusCode::CREATED
+        },
+        Json(job),
+    ))
 }
 
 async fn cron_materialize(

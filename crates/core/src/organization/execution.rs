@@ -24,7 +24,7 @@ pub fn register_configs(registry: &mut ConfigRegistry) -> crate::deployment_conf
             Ok(json!(config))
         })?;
     }
-    Ok(())
+    super::media_interpretation::register_configs(registry)
 }
 
 pub fn job_handlers(runtime: Runtime) -> Vec<Arc<dyn JobHandler>> {
@@ -39,13 +39,14 @@ pub fn job_handlers(runtime: Runtime) -> Vec<Arc<dyn JobHandler>> {
         })
         .collect();
     handlers.push(Arc::new(OrganizationJob {
-        runtime,
+        runtime: runtime.clone(),
         behavior: behaviors()
             .into_iter()
             .find(|b| b.request == "ruminate")
             .expect("canonical rumination behavior"),
         explicit: true,
     }));
+    handlers.push(super::media_interpretation::job_handler(runtime));
     handlers
 }
 struct OrganizationJob {

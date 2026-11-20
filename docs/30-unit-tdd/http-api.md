@@ -13,19 +13,19 @@
 | `GET /blocks/{id}/content` | inline 文本或已注册 Storage handler 读取的实际 bytes |
 | `GET /blocks/{id}/relations` | 关联 Relation 分页 |
 | `GET /relations/by_block/{id}` | 关联 Relation 数组，端点为 `from_block_id/to_block_id` |
-| `POST /relations` | `{from_,to_,content}`，201 返回 Relation |
+| `POST /relations` | `{from_block_id,to_block_id,content}`，201 返回 Relation。也接受原字段 `from_/to_` |
 | `GET/PATCH/DELETE /relations/{id}` | 读取、部分更新或删除 |
-| `GET /relations/{id}/neighborhood` | Relation 和其两个端点组成的闭合图 |
+| `GET /relations/{id}/neighborhood` | `{focal_relation,graph}`，含 Relation 与存在的端点 |
 | `POST /graph/neighborhood` | `{block_id,direction?,contents?,limit?,cursor?}` |
 | `GET /blocks/{id}/neighborhood` | `direction`、可重复的 `contents`、`limit`、`cursor`；返回 `focal_block/graph/next_cursor` |
-| `GET/POST /graph/path` | source、target、direction、contents、max_hops、max_explored_blocks；POST 使用 JSON body |
+| `POST /graph/path` | `{from_block_id,to_block_id,direction?,contents?,max_hops?,max_explored_blocks?}` |
 | `POST /graph/components` | `{seed_block_ids,contents,max_explored_blocks?,max_explored_relations?}`，返回种子分组、缺失 ID 和闭合证明图 |
 | `POST /graph` | 扁平生产者命令 `{blocks,relations}`，原子保存并返回 `{blocks:[{local_id,id}]}` |
 | `POST /entities/get` | `{entities:[{type,id}],content:"none/raw/hydrated"}`，按输入顺序返回记录或逐项错误 |
 
 `POST /graph` 的新 Block 使用命令局部负 ID，Relation 可引用这些 ID 或既有正 ID。生产者可保存本机尚未加载的 exact Resolver。需要本机校验表示时使用 `/graph/submit`。实体批量响应在存在二进制内容时采用 `multipart/related`，首段包含 `{value,parts}`，其余各段用 Content-ID 与 JSON Pointer 对应。
 
-`direction` 为 `in/out/both`；`contents` 是精确 Relation content 过滤，空数组代表不过滤。GET path 的 contents 是经 URL 编码的 JSON 字符串数组，可完整表达含逗号的内容。路径结果包含 `outcome=found/not_found/limit_reached`、闭合 `graph` 与有序 `block_ids/relation_ids`，不能把预算耗尽当作没有路径。PATCH 省略字段保持原值；Block storage 显式 null 清空，其余非空字段不接受 null。
+`direction` 为 `in/out/both`。`contents` 按 Relation content 精确过滤，空数组代表不过滤。根路径 POST 以 `status=found/not_found/limit_reached` 表示结果，找到路径时包含闭合 `graph` 和有序 `block_path/relation_path`。旧 GET 查询与 `/api/v1` 下的 POST 保留 `outcome`、`block_ids/relation_ids`。旧 GET 的 `contents` 使用 URL 编码的 JSON 字符串数组。PATCH 省略字段保持原值，Block storage 显式 null 可清空。
 
 普通 Block/Relation 读取不要求相应 Resolver 已加载。HTTP 创建或修改 Block 则会校验完整的新表示，要求本机 exact Resolver 和相应 Storage handler；未知 Resolver 不会退化为纯文本。`/content` 返回 `text/plain` 或 `application/octet-stream`，不返回 solved JSON。
 
@@ -105,7 +105,7 @@ worker 默认发现并执行本机有资格领取的 pending 工作；未知或�
 | `POST /sources/{id}/backfill` | body 为回填配置对象，同样支持超时参数。该类型无 backfill schema 时返回 422 |
 | `GET/POST /crons` | 模板分页，或创建 `{schedule,enabled?,job_type,job_parameters?,job_timeout_seconds?}`；创建返回 201 |
 | `GET/PATCH/DELETE /crons/{id}` | 读取、修改或删除模板；删除返回 204 |
-| `POST /crons/{id}/run` | 202 返回独立普通 Job，忽略 enabled，不改变发生进度 |
+| `POST /crons/{id}/run` | 201 返回独立普通 Job，忽略 enabled，保留发生进度。`/api/v1` 返回 202 |
 | `POST /crons/{id}/materialize` | 按当前到期分钟物化一次，返回 Job 或 null |
 | `GET/PUT /cron/config` | 部署级 `{timezone}`，默认 UTC；写入影响共享 Cron 的时区解释 |
 
@@ -117,7 +117,7 @@ RSS Source ID 为 `extensions.rss.rss.Source`，Atom 为 `extensions.rss.atom.So
 
 Cron 默认 enabled，schedule 使用五段 UNIX 格式、分钟粒度，时区接受 IANA 名称。PATCH 支持创建字段，`job_timeout_seconds=null` 恢复 JobType 默认值。materialize 遵守 enabled、当前发生去重及 `last_job` pending/running 的叠加限制；删除模板不删除已生成的 Job。自动 loop 与显式入口都只生产普通 Job，执行统一交给 worker；详细语义见 [Job 与 Cron](job-runtime.md)。
 
-分页一般返回 `items/next_cursor`，limit 默认 50、范围 1–1000，cursor exclusive。Source 按 ID 降序，Cron 按 ID 升序，SourceType 按 ID 字典序升序。
+根路径的 Source、SourceType 和 Cron 集合分别返回 `sources`、`source_types` 和 `crons`，并提供 `next_cursor`。`/api/v1` 保留 `items/next_cursor`。Source 按 ID 降序，Cron 按 ID 升序，SourceType 按 ID 字典序升序。
 
 ## 检索与配置
 

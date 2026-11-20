@@ -1,5 +1,10 @@
 //! Bounded recording and querying of the deployment-selected observation backend.
+mod loki;
+mod options;
+mod relay;
+pub use relay::{Relay, RelayError};
 mod postgresql;
+pub use options::{Deployment, Endpoints, LocalOptions, OtlpConnection};
 mod types;
 use crate::Core;
 use serde_json::{Value, json};
@@ -36,7 +41,8 @@ pub struct Runtime {
     core: Core,
     peer_id: Uuid,
     selected: String,
-    configured: bool,
+    backend: Option<options::Backend>,
+    external_content: bool,
     accepting: AtomicBool,
     closed: AtomicBool,
     gate: SyncMutex<()>,
@@ -49,52 +55,11 @@ pub struct Runtime {
 }
 impl Runtime {
     pub async fn start(core: Core, peer_id: Uuid) -> Arc<Self> {
-        let selected = timeout(
-            Duration::from_secs(5),
-            sqlx::query_as::<_, (String, Value)>(
-                "SELECT schema,value FROM inkcre.configs WHERE key='inkcre.observability.backend'",
-            )
-            .fetch_optional(core.pool()),
-        )
-        .await;
-        let (selected, configured, error) = match selected {
-            Ok(Ok(None)) => ("postgresql".to_string(), true, None),
-            Ok(Ok(Some((schema, value)))) => {
-                let valid = schema == "inkcre.observability.backend.v1"
-                    && value
-                        .as_object()
-                        .is_some_and(|o| o.keys().all(|k| k == "backend"));
-                let backend = value
-                    .get("backend")
-                    .and_then(Value::as_str)
-                    .unwrap_or("postgresql");
-                if !valid
-                    || !matches!(backend, "postgresql" | "loki")
-                    || value
-                        .get("backend")
-                        .is_some_and(|v| !matches!(v.as_str(), Some("postgresql" | "loki")))
-                {
-                    (
-                        "postgresql".into(),
-                        false,
-                        Some("Observability configuration is invalid".into()),
-                    )
-                } else if backend == "loki" {
-                    (
-                        "loki".into(),
-                        false,
-                        Some("Selected Loki backend has no local connection".into()),
-                    )
-                } else {
-                    ("postgresql".into(), true, None)
-                }
-            }
-            _ => (
-                "postgresql".into(),
-                false,
-                Some("Observability configuration could not be read".into()),
-            ),
-        };
+        Self::start_with_options(core, peer_id, LocalOptions::default()).await
+    }
+    pub async fn start_with_options(core: Core, peer_id: Uuid, options: LocalOptions) -> Arc<Self> {
+        let (selected, backend, _deployment, error) = options::configure(&core, &options).await;
+        let configured = backend.is_some();
         let (sender, mut receiver) = mpsc::channel::<Record>(1024);
         let (stop, mut stopped) = watch::channel(false);
         let counts = Arc::new(Counters {
@@ -106,7 +71,8 @@ impl Runtime {
             core: core.clone(),
             peer_id,
             selected,
-            configured,
+            backend: backend.clone(),
+            external_content: options.allow_external_content,
             accepting: AtomicBool::new(configured),
             closed: AtomicBool::new(false),
             gate: SyncMutex::new(()),
@@ -117,10 +83,17 @@ impl Runtime {
             queries: Arc::new(Semaphore::new(4)),
             requests: Arc::new(Semaphore::new(4)),
         });
-        if configured {
+        if let Some(backend) = backend {
             let task = tokio::spawn(async move {
                 loop {
-                    let first = tokio::select! {biased;_=stopped.changed()=>{receiver.close();receiver.recv().await},item=receiver.recv()=>item};
+                    let first = tokio::select! {
+                        biased;
+                        _=stopped.changed()=>{
+                            receiver.close();
+                            receiver.recv().await
+                        },
+                        item=receiver.recv()=>item,
+                    };
                     let Some(first) = first else { break };
                     let mut records = vec![first];
                     while records.len() < 100 {
@@ -131,7 +104,7 @@ impl Runtime {
                     }
                     let count = records.len() as u64;
                     if !matches!(
-                        timeout(Duration::from_secs(5), postgresql::write(&core, records)).await,
+                        timeout(Duration::from_secs(10), backend.write(&core, records)).await,
                         Ok(Ok(()))
                     ) {
                         counts.dropped.fetch_add(count, Ordering::Relaxed);
@@ -148,9 +121,9 @@ impl Runtime {
     pub fn status(&self) -> Status {
         Status {
             backend: self.selected.clone(),
-            configured: self.configured,
+            configured: self.backend.is_some(),
             recording: self.accepting.load(Ordering::Acquire),
-            queryable: self.configured && !self.closed.load(Ordering::Acquire),
+            queryable: self.backend.is_some() && !self.closed.load(Ordering::Acquire),
             scope: "selected_backend",
             history: "Only the selected backend is queried; prior backend data remains there.",
             dropped: self.counts.dropped.load(Ordering::Relaxed),
@@ -179,6 +152,19 @@ impl Runtime {
             .attributes
             .entry("inkcre.peer.id".to_owned())
             .or_insert(json!(self.peer_id));
+        if self.selected == "loki" && !self.external_content {
+            record
+                .attributes
+                .retain(|key, _| METADATA.contains(&key.as_str()));
+            record.body = if record.kind != "log" {
+                record
+                    .event_name
+                    .clone()
+                    .unwrap_or_else(|| "application.log".into())
+            } else {
+                "application.log".into()
+            };
+        }
         let _gate = self.gate.lock().unwrap_or_else(|p| p.into_inner());
         if !self.accepting.load(Ordering::Acquire) {
             self.counts.dropped.fetch_add(1, Ordering::Relaxed);
@@ -196,7 +182,7 @@ impl Runtime {
     }
     pub async fn query(&self, query: Query) -> Result<Page> {
         query.validate()?;
-        if !self.configured || self.closed.load(Ordering::Acquire) {
+        if self.backend.is_none() || self.closed.load(Ordering::Acquire) {
             return Err(Error::Unavailable);
         }
         let _permit = self
@@ -206,7 +192,10 @@ impl Runtime {
             .map_err(|_| Error::Unavailable)?;
         match timeout(
             Duration::from_secs(10),
-            postgresql::query(&self.core, query),
+            self.backend
+                .as_ref()
+                .ok_or(Error::Unavailable)?
+                .query(&self.core, query),
         )
         .await
         {
@@ -233,6 +222,9 @@ impl Runtime {
             let _ = task.await;
             self.counts
                 .error("Recording drain timed out; pending records were dropped");
+        }
+        if let Some(backend) = &self.backend {
+            backend.close();
         }
         let pending = self.counts.pending.swap(0, Ordering::Relaxed);
         self.counts.dropped.fetch_add(pending, Ordering::Relaxed);
@@ -270,6 +262,17 @@ pub fn register_config(
     registry: &mut crate::deployment_config::ConfigRegistry,
 ) -> crate::deployment_config::Result<()> {
     use crate::deployment_config::{Error, SchemaDescriptor};
+    registry.register(SchemaDescriptor {
+        id:"inkcre.observability.v1".into(),keys:vec!["inkcre.observability".into()],description:"Deployment identity and non-secret telemetry endpoints.".into(),
+        input_schema:Some(json!({"type":"object","additionalProperties":false,"required":["deployment_id"],"properties":{"deployment_id":{"type":"string","format":"uuid"},"diagnostics_url":{"type":["string","null"],"default":null},"otlp_http_endpoints":{"type":["object","null"],"default":null,"additionalProperties":false,"properties":{"traces":{"type":["string","null"],"default":null},"logs":{"type":["string","null"],"default":null},"metrics":{"type":["string","null"],"default":null}}}}}))
+    },|value|{
+        let mut parsed:Deployment=serde_json::from_value(value).map_err(|_|Error::Invalid("invalid observability deployment configuration"))?;
+        parsed.validate().map_err(|_|Error::Invalid("invalid observability endpoint"))?;
+        let mut urls=vec![&mut parsed.diagnostics_url];
+        if let Some(endpoints)=&mut parsed.otlp_http_endpoints { urls.extend([&mut endpoints.traces,&mut endpoints.logs,&mut endpoints.metrics]); }
+        for value in urls.into_iter().flatten(){*value=url::Url::parse(value).map_err(|_|Error::Invalid("invalid observability endpoint"))?.to_string();}
+        serde_json::to_value(parsed).map_err(|_|Error::Invalid("invalid observability deployment configuration"))
+    })?;
     registry.register(SchemaDescriptor{id:"inkcre.observability.backend.v1".into(),keys:vec!["inkcre.observability.backend".into()],description:"Select the shared recording and querying backend.".into(),input_schema:Some(json!({"type":"object","additionalProperties":false,"properties":{"backend":{"enum":["postgresql","loki"],"default":"postgresql"}}}))},|mut value|{
   let object=value.as_object_mut().ok_or(Error::Invalid("value must be an object"))?;
   if object.keys().any(|key|key!="backend"){return Err(Error::Invalid("unknown backend configuration property"))}
@@ -278,3 +281,54 @@ pub fn register_config(
   Ok(value)
  })
 }
+
+const METADATA: &[&str] = &[
+    "duration_ms",
+    "error.type",
+    "gen_ai.conversation.id",
+    "gen_ai.operation.name",
+    "gen_ai.provider.name",
+    "gen_ai.request.model",
+    "gen_ai.response.model",
+    "gen_ai.tool.name",
+    "gen_ai.usage.input_tokens",
+    "gen_ai.usage.output_tokens",
+    "http.request.method",
+    "http.response.status_code",
+    "http.route",
+    "inkcre.agent.id",
+    "inkcre.agent.model_call",
+    "inkcre.agent.model_calls",
+    "inkcre.agent.outcome",
+    "inkcre.agent.tool_call.id_hash",
+    "inkcre.agent.turn",
+    "inkcre.ai.model.id",
+    "inkcre.ai.usage.input.source",
+    "inkcre.ai.usage.output.source",
+    "inkcre.block.id",
+    "inkcre.cron.id",
+    "inkcre.entity.block_ids",
+    "inkcre.entity.read",
+    "inkcre.entity.read.count",
+    "inkcre.entity.read.kind",
+    "inkcre.entity.relation_ids",
+    "inkcre.job.id",
+    "inkcre.job.status",
+    "inkcre.operation",
+    "inkcre.outcome",
+    "inkcre.peer.id",
+    "inkcre.peer.target_id",
+    "inkcre.resolver.id",
+    "inkcre.retrieval.candidate_count",
+    "inkcre.retrieval.candidates",
+    "inkcre.retrieval.method",
+    "inkcre.thread.id",
+    "inkcre.tool.id",
+    "inkcre.tool_call.id",
+    "input_tokens",
+    "job_id",
+    "operation",
+    "outcome",
+    "output_tokens",
+    "reason",
+];

@@ -1,0 +1,25 @@
+[package]
+name = "inkcre-telegram-extension"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.inkcre]
+extension = "inkcre/telegram"
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+inkcre-core.workspace = true
+inkcre-extension-sdk.workspace = true
+mime_guess = "2"
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

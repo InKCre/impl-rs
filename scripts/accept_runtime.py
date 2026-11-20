@@ -229,6 +229,13 @@ class RuntimeJourney(Journey):
         actual = self.request("GET", f"/api/v1/blocks/{enclosure['content_block_id']}/content")
         if actual != self.feed.attachment:
             raise RuntimeError("enclosure bytes changed")
+        materialized = self.request("POST", "/rss/enclosures/materialize", {
+            "enclosure_block_ids": [item["enclosure_block_ids"][0], -1],
+        })["results"]
+        if (len(materialized) != 2 or materialized[0]["status"] != "existing"
+                or materialized[0]["content_block_id"] != enclosure["content_block_id"]
+                or materialized[1]["status"] != "failed"):
+            raise RuntimeError("RSS HTTP ingress lost batch order or enclosure reuse")
         before = len(self.items("/api/v1/blocks"))
         self.wait_job(self.collect(rss))
         if len(self.items("/api/v1/blocks")) != before:

@@ -71,7 +71,7 @@ python3 scripts/publish_extension.py inkcre/learn-english --nickname 'Learn Engl
 
 enable 保存意图后启动插件，initialize 获得该精确分发的 config schema 和 typed capability descriptor，start 完成后注册本机 Resolver、Storage、Source 或 Job adapter，并复核选择。共享 catalog 中有类型不代表当前 Peer 已加载 handler。配置更新使用当前 Peer 精确 schema，不合并其他分发 schema；运行实例通过停用再启用读取新配置。disable 撤回 adapter、取消在途调用并停止实际子进程；数据库失败时本机停用状态保留，通过 `locally_disabled` 区分尚未同步的共享 enabled。周期 reconcile 处理其他 Peer 修改的启用、移除或版本选择。
 
-原生 executable 是可信代码，进程隔离承担生命周期管理。宿主以 `INKCRE_DATABASE_URL` 向受信插件提供 native 数据库能力；凭据不保存到 manifest 或共享扩展 config。SDK 每帧上限为 1 MiB。
+原生 executable 是可信代码，进程隔离承担生命周期管理。宿主以 `INKCRE_DATABASE_URL` 向受信插件提供 native 数据库能力，凭据不会写进 manifest 或共享扩展 config。初始化和通用 SDK 操作每帧上限为 1 MiB。扩展 HTTP 路由通过独立的 `http_request` 帧传递原始 body，body 上限 45 MiB，传输帧上限 64 MiB。本机 HTTP 层最多同时处理四个扩展 HTTP 请求。
 
 [`inkcre/rss`](../../extensions/rss/README.md) 使用同一 Extension Name、Source 类型与 canonical 图契约提供 RSS/Atom 采集、正文提取、附件保存和三个 Resolver。构建、manifest 坐标与配置见扩展 README；backfill 明确不支持。它使用严格 XML 解析，拒绝损坏或不能对齐条目的文档，不保证 Python feedparser 的容错恢复行为或提取文本逐字相同。游标范围及可恢复投影见 [RSS 设计](../30-unit-tdd/rss-extension.md)。
 
@@ -110,3 +110,9 @@ python3 scripts/acceptance.py --config-json /私密目录/native.json \
 此阶段没有自动化测试套件。`bash scripts/check.sh` 执行格式、编译、Clippy 和 rustdoc。静态检查通过不能代替真实数据库与插件验收。
 
 知识读取的语义和事务边界见 [知识运行时](../30-unit-tdd/knowledge-runtime.md)。当前能力及 HTTP 兼容范围见 [内部设计](../30-unit-tdd/architecture.md) 和 [HTTP API](../30-unit-tdd/http-api.md)。Registry 下载要求所选服务提供 Rust 分发和本平台已发布产物，本机已有精确选择启动前会重新读取其状态。已经选择的 yanked 版本可以恢复，blocked 会阻止启动。
+
+## 音视频解算
+
+需要读取 `core.audio.v1` 和 `core.video.v1` 解算结果的 Peer，可将 `INKCRE_MEDIA_TOOLS_DIR` 设置为包含可信 `ffprobe` 和 `ffmpeg` 的目录。两者需要支持输入协议 `fd`，可分别运行 `-protocols` 核对。基础 HTTP 应用可单独运行，并继续识别和保存这两个持久 Resolver 类型。SDK 嵌入方通过 `MediaTools::from_directory` 与 `register` 显式接入解算工具。
+
+宿主通过文件描述符传递原始字节，清空子进程环境，并将输入协议限制为 `fd`。一次解算的输入上限为 128 MiB，运行预算为 25 秒，同一 Core 最多并行两次探测。音频与视频的文字投影使用 lexical context。配置指定的 AI 模型和 `materialize_missing` 控制音轨转录、画面文字和内嵌字幕的 sidecar 保存，已有 sidecar 会复用。

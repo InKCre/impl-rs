@@ -83,8 +83,8 @@ fn build() -> Value {
     let mut doc = Document::new();
     doc.json::<core::BlockInput>("/blocks", "post", 201);
     doc.patch::<core::BlockInput>("/blocks/{block_id}", &[]);
-    doc.json::<core::RelationInput>("/relations", "post", 201);
-    doc.patch::<core::RelationInput>("/relations/{relation_id}", &[]);
+    doc.json::<crate::routes::RelationRequest>("/relations", "post", 201);
+    doc.patch::<crate::routes::RelationRequest>("/relations/{relation_id}", &[]);
     doc.json::<core::GraphInput>("/graph", "post", 200);
     doc.json::<crate::entity_routes::EntityForm>("/entities/get", "post", 200);
     doc.json::<crate::routes::PathInput>("/graph/path", "post", 200);
@@ -131,6 +131,9 @@ fn build() -> Value {
     for path in [
         "/blocks/{block_id}",
         "/blocks/recent",
+        "/blocks/{block_id}/neighborhood",
+        "/relations/{relation_id}",
+        "/relations/{relation_id}/neighborhood",
         "/relations/by_block/{block_id}",
         "/blocks/{block_id}/resolver/methods",
         "/resolvers",
@@ -184,7 +187,6 @@ fn build() -> Value {
     }
     for path in [
         "/jobs/{job_id}/abort",
-        "/crons/{cron_id}/run",
         "/crons/{cron_id}/materialize",
         "/sinks/{sink_id}/enable",
         "/sinks/{sink_id}/disable",
@@ -193,6 +195,7 @@ fn build() -> Value {
     ] {
         doc.operation(path, "post", None, 200);
     }
+    doc.operation("/crons/{cron_id}/run", "post", None, 201);
     doc.finish()
 }
 

@@ -12,8 +12,9 @@ use std::{
 };
 
 use inkcre_extension_sdk::{
-    DISTRIBUTION, Descriptor, InvokeParams, Manifest, PROTOCOL_VERSION, Request, Response,
-    SDK_VERSION, StartContext, read_frame, validate_name, write_frame,
+    DISTRIBUTION, Descriptor, InvokeParams, MAX_FRAME_BYTES, MAX_HTTP_FRAME_BYTES, Manifest,
+    PROTOCOL_VERSION, Request, Response, SDK_VERSION, StartContext, read_frame_with_limit,
+    validate_name, write_frame_with_limit,
 };
 use semver::{Version, VersionReq};
 use serde::Serialize;
@@ -34,7 +35,9 @@ use crate::{
 };
 
 mod adapters;
+mod http_ingress;
 mod registry;
+pub use http_ingress::*;
 pub use registry::register_registry_config;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
@@ -97,6 +100,7 @@ pub struct ExtensionHost {
     database_url: Option<Arc<str>>,
     jobs: Option<JobRegistry>,
     sources: Option<SourceRuntime>,
+    reserved_http_mounts: Arc<HashSet<String>>,
     inner: Arc<Mutex<HostState>>,
 }
 
@@ -332,8 +336,13 @@ impl Process {
             completed: false,
         };
         let operation = async {
-            write_frame(&mut io.input, &request).await?;
-            let frame = read_frame(&mut io.output)
+            let limit = if method == "http_request" {
+                MAX_HTTP_FRAME_BYTES
+            } else {
+                MAX_FRAME_BYTES
+            };
+            write_frame_with_limit(&mut io.input, &request, limit).await?;
+            let frame = read_frame_with_limit(&mut io.output, limit)
                 .await?
                 .ok_or_else(|| Error::Runtime("扩展提前退出".into()))?;
             let raw: Value = serde_json::from_slice(&frame)?;
@@ -415,6 +424,7 @@ impl ExtensionHost {
             database_url: None,
             jobs: None,
             sources: None,
+            reserved_http_mounts: Arc::default(),
             inner: Arc::new(Mutex::new(HostState::default())),
         }
     }
@@ -432,6 +442,12 @@ impl ExtensionHost {
 
     pub fn with_sources(mut self, sources: SourceRuntime) -> Self {
         self.sources = Some(sources);
+        self
+    }
+
+    /// Reserve names served by the embedding app itself.
+    pub fn with_reserved_http_mounts(mut self, names: &[&str]) -> Self {
+        self.reserved_http_mounts = Arc::new(names.iter().map(|name| (*name).into()).collect());
         self
     }
 
@@ -658,6 +674,7 @@ impl ExtensionHost {
                 return Err(Error::Invalid("config schema 必须为对象".into()));
             }
             descriptor.capabilities.validate()?;
+            http_ingress::check_activation(self, state, &descriptor)?;
             // schema 描述已验证的精确产物，不能依赖成功 start 才能编辑必填配置。
             if !self
                 .core

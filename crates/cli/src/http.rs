@@ -4,11 +4,20 @@ use serde_json::{Value, json};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub struct Failure {
     pub code: i32,
+    pub http_status: Option<u16>,
     pub detail: Value,
 }
 impl Failure {
+    pub fn as_value(&self) -> Value {
+        let mut result = json!({"detail":self.detail});
+        if let Some(status) = self.http_status {
+            result["http_status"] = json!(status);
+        }
+        result
+    }
     pub fn usage(message: &str) -> Self {
         Self {
+            http_status: None,
             code: 2,
             detail: json!(message),
         }
@@ -74,6 +83,7 @@ impl Client {
             request = request.json(&body);
         }
         let mut response = request.send().await.map_err(|_| Failure {
+            http_status: None,
             code: 1,
             detail: json!("HTTP请求失败，操作结果可能未知"),
         })?;
@@ -89,6 +99,7 @@ impl Client {
             .to_owned();
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(|_| Failure {
+            http_status: None,
             code: 1,
             detail: json!("HTTP响应读取失败"),
         })? {
@@ -98,6 +109,7 @@ impl Client {
                     .saturating_sub(bytes.len())
             {
                 return Err(Failure {
+                    http_status: None,
                     code: 1,
                     detail: json!("HTTP响应超过32MiB"),
                 });
@@ -105,9 +117,24 @@ impl Client {
             bytes.extend_from_slice(&chunk);
         }
         if !status.is_success() {
+            let payload = serde_json::from_slice::<Value>(&bytes)
+                .unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes)));
+            let mut detail = payload.get("detail").cloned().unwrap_or(payload);
+            if status.as_u16() == 422
+                && let Some(items) = detail.as_array_mut()
+            {
+                for item in items {
+                    if let Some(loc) = item.get_mut("loc").and_then(Value::as_array_mut)
+                        && loc.first().is_some_and(|v| v == "body")
+                    {
+                        loc.remove(0);
+                    }
+                }
+            }
             return Err(Failure {
                 code: 1,
-                detail: json!({"status":status.as_u16(),"message":"远端请求失败"}),
+                http_status: Some(status.as_u16()),
+                detail,
             });
         }
         if mime.starts_with("application/octet-stream") {
@@ -117,6 +144,7 @@ impl Client {
             return multipart(&mime, &bytes);
         }
         serde_json::from_slice(&bytes).map_err(|_| Failure {
+            http_status: None,
             code: 1,
             detail: json!("无法解码响应JSON，二进制hydrated内容请使用HTTP内容接口"),
         })
@@ -125,6 +153,7 @@ impl Client {
 
 fn multipart(mime: &str, bytes: &[u8]) -> Result<Value, Failure> {
     let invalid = || Failure {
+        http_status: None,
         code: 1,
         detail: json!("无效 multipart 内容响应"),
     };
@@ -233,6 +262,7 @@ impl Client {
             .send()
             .await
             .map_err(|_| Failure {
+                http_status: None,
                 code: 1,
                 detail: json!("就绪请求失败"),
             })?;
@@ -242,6 +272,7 @@ impl Client {
                 .send()
                 .await
                 .map_err(|_| Failure {
+                    http_status: None,
                     code: 1,
                     detail: json!("就绪请求失败"),
                 })?

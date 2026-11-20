@@ -145,7 +145,7 @@ pub async fn run(
     let mut roots = vec![source_anchor, account];
     roots.extend(managed_lists.iter().copied());
     let repo_ids: Vec<i32> = repositories.values().copied().collect();
-    let relations: Vec<(i32, i32, i32, String)> = sqlx::query_as("SELECT id,from_,to_,content FROM inkcre.relations WHERE (from_=ANY($1) OR to_=ANY($2)) AND content=ANY($3) ORDER BY id")
+    let relations: Vec<(i32, Option<i32>, Option<i32>, String)> = sqlx::query_as("SELECT id,from_,to_,content FROM inkcre.relations WHERE (from_=ANY($1) OR to_=ANY($2)) AND content=ANY($3) ORDER BY id")
         .bind(roots).bind(&repo_ids).bind(vec!["collects", "stars", "owns", "contains"])
         .fetch_all(&mut *tx).await.map_err(db)?;
     let mut desired = BTreeSet::from([(source_anchor, account, "collects".into())]);
@@ -181,6 +181,9 @@ pub async fn run(
     }
     let mut retained = BTreeSet::<Edge>::new();
     for (id, from, to, kind) in relations {
+        let (Some(from), Some(to)) = (from, to) else {
+            continue;
+        };
         let managed = match kind.as_str() {
             "collects" => from == source_anchor && kinds.get(&to).is_some_and(|r| r == ACCOUNT),
             "stars" => from == account && kinds.get(&to).is_some_and(|r| r == REPOSITORY),

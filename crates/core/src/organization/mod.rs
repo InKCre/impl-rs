@@ -677,6 +677,7 @@ impl Core {
 pub const RUMINATION_CAPABILITY: &str = "core.organization.rumination.v1";
 mod draft_tools;
 mod execution;
+mod media_interpretation;
 pub use execution::{job_handlers, register_configs};
 
 impl Core {

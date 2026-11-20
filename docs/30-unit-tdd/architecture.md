@@ -25,9 +25,9 @@ app 的 HTTP 入口及带版本前缀的兼容接口见 [HTTP API](http-api.md)�
 | Job | catalog/schema 准入、handler registry、资格判断、pending 发现、原子 claim、并发预算、持久 checkpoint、执行中取消与终态收尾；不自动重试 |
 | 定时与采集 | Source catalog/config/state/anchor、collect/backfill 框架、五段 Cron 与时区。RSS/Atom 采集正文和附件，GitHub Stars 与 Lists 对账共享图 |
 | 检索 | PostgreSQL 词法投影和 profile 向量空间，维护和重建 Job，应用方可分别获得 hybrid 的两组排名 |
-| 第一方扩展 | RSS/Atom 与 GitHub 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取 |
+| 第一方扩展 | RSS/Atom、GitHub 与 Telegram 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取 |
 | AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行、Agent 定义和工具调用、Organization 草稿及自动 Job、Agent Query 与 MCP Sink |
-| 运维与接口 | 请求 DTO 驱动的 OpenAPI、独立 `inkcre-cli`、安装目录打包与 Registry 发布脚本。原生 PostgreSQL 观测记录及有界查询 |
+| 运维与接口 | 请求 DTO 驱动的 OpenAPI、独立 `inkcre-cli`、安装目录打包与 Registry 发布脚本。PostgreSQL 或 Loki 观测记录及有界查询，认证 OTLP 转发 |
 
 知识与 Storage 的事务、读取和缓存边界见 [知识运行时](knowledge-runtime.md)；Job 执行与 Cron 发生见 [任务运行时](job-runtime.md)；RSS 的 canonical 图、游标与 materialization 见 [RSS 分发](rss-extension.md)。扩展通用方法不会自动成为业务 handler，必须通过 SDK capability descriptor 声明并注册 typed adapter。
 
@@ -46,5 +46,7 @@ Rust worker 取消执行并等待本机收尾后写终态，但进程崩溃或�
 扩展 SDK 在 `ext-reg/runtimes/core-rs` 独立维护，本仓通过固定版本子模块消费。宿主可从启动配置允许的本地 manifest 安装精确产物，也可从部署配置指定的 Registry 获取已发布的精确 Rust 产物。两条路径校验身份、SemVer、协议、SDK 条件及摘要，最终保存同一种本机选择。
 
 保存 selection/enabled 后应用运行变化；插件启动返回后再次确认精确选择与启用意图。停止 Peer 或插件撤回本机运行能力并收尾在途任务，持久配置、业务 state 和已保存资料继续存在。插件 abort/timeout 使实际子进程被回收；仍被选择且 enabled 的精确分发可由 reconcile 恢复，原 Job 不重放。
+
+扩展 HTTP 路由由精确产物的 `http_ingress` 描述。宿主按扩展名称保留安装根，并在调用时确认仍为当前启用进程。普通路由由宿主校验 Peer JWT，其余访问模式按 descriptor 明确声明。只有精确、Peer 认证的路由可随租约发布为 Peer inbound。HTTP 转交保留标准方法、请求字节和重复 header，过滤连接级 header，协议自有凭据仅交给声明相应认证模式的扩展。
 
 原生插件复用宿主 Peer。显式受信的插件通过 `INKCRE_DATABASE_URL` 接收 native 数据库能力，可另行采用 core SDK；SDK 本身不反向依赖 core，也不把凭据保存到 manifest 或共享 config。[文本保存示例](../../examples/note-extension/README.md) 演示通用调用，[RSS/Atom 分发](../../extensions/rss/README.md) 演示同一扩展身份下的真实业务能力。

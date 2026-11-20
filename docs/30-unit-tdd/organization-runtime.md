@@ -19,3 +19,9 @@ Supersession Resolver 公开有界 `read_lineage`，遍历 supersedes 连通历�
 原生数据库验收已覆盖关系幂等、环拒绝、lineage、合成及 anchor 复用。HTTP 与真实 worker 验收覆盖显式 rumination、自动 refinement、配置选择、bounded seeds 和 Agent 预算耗尽后的正常收尾。其余六种自动行为复用同一执行器，并对照固定 Python 的元数据和分类策略核对。通用 drafting 工具的模型旅程也已验证，从 schema 发现、以 -10 开始的本地 ID drafting、事务提交到持久图读取形成完整路径。媒体解释由独立业务模块实现。
 
 每次创建 Agent Thread 时，drafting Tool 重新绑定当前可用的 exact Resolver contract 和 handler。`get_draft_graph_schema` 按请求顺序返回这些输入 schema。`draft_graph` 校验选中 Resolver 的输入，重映射局部负 ID，返回 canonical flat GraphForm。`submit_graph` 复用共享图提交入口，并返回局部到持久 Block ID 映射。drafting 本身只生成命令，图写入发生于 submit。
+
+媒体解释 Job `core.organization.media_interpretation.v1` 使用严格配置 `core.organization.media_interpretation.config.v1`，key 为 `core.organization.media_interpretation`，要求 `image_agent`、`audio_agent`、`video_agent`。Job 无参数，默认预算为 1800 秒。它按 ID 递增选择至多 20 个没有出向 `interpretation` 关系的媒体 Block，仅在本 Peer 可执行相应 Agent 时运行；音频和视频还要求本地配置 `MediaTools`。未配置的 Peer 仍可识别持久 Resolver 身份。
+
+每个媒体输入保留原始字节、MIME 和传输 URL，附带媒体事实及至多 20 条直接关系，要求 Agent 仅提交有用的增量图。成功执行后必须实际读到 `interpretation` 关系才计为 interpreted。单项不可执行、模型故障和无图输出分别计入 unavailable、failed、no_output，继续处理后续候选；诊断最多 20 条，汇总保存到 Job state。worker 取消会取消正在执行的 Agent future。该业务与忠实 OCR/转录侧车物化独立。
+
+真实 worker 与 loopback AI 验收已完成 image Agent 调用 `submit_graph` 后从 PostgreSQL 读回 interpretation 图，并验证 provider 故障和无输出的逐项隔离及汇总报告。

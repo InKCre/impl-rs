@@ -10,8 +10,8 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Request, State},
-    http::{StatusCode, header},
+    extract::{DefaultBodyLimit, MatchedPath, OriginalUri, Request, State},
+    http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -32,8 +32,10 @@ use crate::{
 
 #[derive(Clone)]
 pub struct AppState {
+    pub extension_http: Arc<tokio::sync::Semaphore>,
     pub core: Core,
     pub observations: Arc<inkcre_core::observability::Runtime>,
+    pub telemetry: Arc<inkcre_core::observability::Relay>,
     pub source_registry: inkcre_core::source::SourceRegistry,
     pub agents: inkcre_core::agent::Runtime,
     pub configs: inkcre_core::deployment_config::ConfigRegistry,
@@ -87,6 +89,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::agent_routes::router())
         .merge(crate::ai_routes::router())
         .merge(crate::observation_routes::router())
+        .merge(crate::telemetry_routes::router())
         .merge(crate::component_routes::router())
         .merge(crate::config_routes::router())
         .merge(crate::entity_routes::router())
@@ -132,7 +135,7 @@ pub fn router(state: AppState) -> Router {
         .merge(mcp.clone())
         .merge(canonical)
         .nest("/api/v1", protected.merge(mcp).merge(legacy))
-        .fallback(|| async { ApiError::not_found("route not found") })
+        .fallback(crate::extension_ingress::route)
         .method_not_allowed_fallback(|| async {
             ApiError::new(
                 StatusCode::METHOD_NOT_ALLOWED,
@@ -145,7 +148,15 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             request_timeout,
         ))
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request| {
+                let route = request
+                    .extensions()
+                    .get::<MatchedPath>()
+                    .map_or("unmatched", MatchedPath::as_str);
+                tracing::debug_span!("http.request", method = %request.method(), route)
+            }),
+        )
         .with_state(state)
 }
 
@@ -154,28 +165,47 @@ async fn live() -> Json<Value> {
 }
 
 async fn authenticate(State(state): State<AppState>, request: Request, next: Next) -> Response {
-    let token = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    if !token.is_some_and(|token| auth::verify(token, &state.secret)) {
-        let mut response = ApiError::new(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "valid Peer bearer token required",
-        )
-        .into_response();
-        response.headers_mut().insert(
-            header::WWW_AUTHENTICATE,
-            axum::http::HeaderValue::from_static("Bearer"),
-        );
-        return response;
+    if let Some(error) = peer_authentication_error(request.headers(), &state.secret) {
+        return error;
     }
     next.run(request).await
 }
 
+pub(crate) fn peer_authentication_error(headers: &HeaderMap, secret: &str) -> Option<Response> {
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    if token.is_some_and(|token| auth::verify(token, secret)) {
+        return None;
+    }
+    Some(
+        (
+            [(header::WWW_AUTHENTICATE, "Bearer")],
+            ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "valid Peer bearer token required",
+            ),
+        )
+            .into_response(),
+    )
+}
+
 async fn request_timeout(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    if request
+        .extensions()
+        .get::<MatchedPath>()
+        .is_some_and(|path| {
+            matches!(
+                path.as_str(),
+                "/telemetry/v1/{signal}" | "/api/v1/telemetry/v1/{signal}"
+            )
+        })
+    {
+        // OTLP relay already applies the configured signal deadline to body and upstream I/O.
+        return next.run(request).await;
+    }
     match tokio::time::timeout(state.timeout, next.run(request)).await {
         Ok(response) => response,
         Err(_) => ApiError::new(
@@ -214,6 +244,49 @@ struct PageQuery {
 
 fn default_limit() -> i64 {
     50
+}
+
+/// Root REST resources use their named Python contract; the versioned API keeps SDK pages.
+pub(crate) fn legacy_uri(uri: &axum::http::Uri) -> bool {
+    uri.path() == "/api/v1" || uri.path().starts_with("/api/v1/")
+}
+
+/// Read SDK-sized batches without imposing the SDK's page-size ceiling on REST.
+/// An omitted canonical limit means all rows, matching the authoritative API.
+pub(crate) async fn resource_page<T, C, F, Fut>(
+    uri: &axum::http::Uri,
+    name: &str,
+    requested: Option<i64>,
+    mut cursor: Option<C>,
+    mut fetch: F,
+) -> ApiResult<Json<Value>>
+where
+    T: Serialize,
+    C: Clone + Serialize,
+    F: FnMut(i64, Option<C>) -> Fut,
+    Fut: std::future::Future<Output = inkcre_core::Result<Page<T, C>>>,
+{
+    if legacy_uri(uri) {
+        return Ok(Json(json!(fetch(requested.unwrap_or(50), cursor).await?)));
+    }
+    if requested.is_some_and(|value| value <= 0) {
+        return Err(ApiError::invalid("limit must be positive"));
+    }
+    let mut remaining = requested;
+    let mut items = Vec::new();
+    loop {
+        let count = remaining.unwrap_or(100).min(100);
+        let page = fetch(count, cursor.clone()).await?;
+        if let Some(left) = &mut remaining {
+            *left -= page.items.len() as i64;
+        }
+        items.extend(page.items);
+        cursor = page.next_cursor;
+        if cursor.is_none() || remaining == Some(0) {
+            break;
+        }
+    }
+    Ok(Json(json!({name: items, "next_cursor": cursor})))
 }
 
 async fn blocks(
@@ -306,6 +379,15 @@ async fn relations_by_block(
     )))
 }
 
+fn relation_response(uri: &axum::http::Uri, relation: Relation) -> Value {
+    let value = json!(relation);
+    if legacy_uri(uri) {
+        value
+    } else {
+        crate::entity_routes::relation_record(value)
+    }
+}
+
 pub(crate) fn canonical_relations(relations: Vec<Relation>) -> Vec<Value> {
     relations
         .into_iter()
@@ -313,31 +395,65 @@ pub(crate) fn canonical_relations(relations: Vec<Relation>) -> Vec<Value> {
         .collect()
 }
 
+/// REST names are explicit endpoint IDs; legacy field names remain accepted aliases.
+#[derive(schemars::JsonSchema, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RelationRequest {
+    #[serde(alias = "from_")]
+    from_block_id: i32,
+    #[serde(alias = "to_")]
+    to_block_id: i32,
+    content: String,
+}
+impl From<RelationRequest> for RelationInput {
+    fn from(input: RelationRequest) -> Self {
+        Self {
+            from_: input.from_block_id,
+            to_: input.to_block_id,
+            content: input.content,
+        }
+    }
+}
+
 async fn relation_create(
     State(state): State<AppState>,
-    ApiJson(input): ApiJson<RelationInput>,
-) -> ApiResult<(StatusCode, Json<Relation>)> {
+    OriginalUri(uri): OriginalUri,
+    ApiJson(input): ApiJson<RelationRequest>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
     Ok((
         StatusCode::CREATED,
-        Json(state.core.relation_create(input).await?),
+        Json(relation_response(
+            &uri,
+            state.core.relation_create(input.into()).await?,
+        )),
     ))
 }
 
 async fn relation_get(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i32>,
-) -> ApiResult<Json<Relation>> {
-    Ok(Json(state.core.relation_get(id).await?.ok_or_else(
-        || ApiError::not_found("relation not found"),
-    )?))
+) -> ApiResult<Json<Value>> {
+    Ok(Json(relation_response(
+        &uri,
+        state
+            .core
+            .relation_get(id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("relation not found"))?,
+    )))
 }
 
 async fn relation_patch(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i32>,
     ApiJson(input): ApiJson<RelationPatch>,
-) -> ApiResult<Json<Relation>> {
-    Ok(Json(state.core.relation_patch(id, input).await?))
+) -> ApiResult<Json<Value>> {
+    Ok(Json(relation_response(
+        &uri,
+        state.core.relation_patch(id, input).await?,
+    )))
 }
 
 async fn relation_delete(
@@ -352,16 +468,19 @@ async fn relation_delete(
 
 #[derive(Deserialize)]
 struct PeerPageQuery {
-    #[serde(default = "default_limit")]
-    limit: i64,
+    limit: Option<i64>,
     cursor: Option<Uuid>,
 }
 
 async fn peers(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiQuery(query): ApiQuery<PeerPageQuery>,
-) -> ApiResult<Json<Page<inkcre_core::Peer, Uuid>>> {
-    Ok(Json(state.core.peer_list(query.limit, query.cursor).await?))
+) -> ApiResult<Json<Value>> {
+    resource_page(&uri, "peers", query.limit, query.cursor, |limit, cursor| {
+        state.core.peer_list(limit, cursor)
+    })
+    .await
 }
 
 async fn peer_get(
@@ -636,15 +755,19 @@ async fn graph_neighborhood(
 
 async fn relation_neighborhood(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i32>,
-) -> ApiResult<Json<inkcre_core::GraphModel>> {
-    Ok(Json(
-        state
-            .core
-            .relation_neighborhood(id)
-            .await?
-            .ok_or_else(|| ApiError::not_found("relation not found"))?,
-    ))
+) -> ApiResult<Json<Value>> {
+    let graph = state
+        .core
+        .relation_neighborhood(id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("relation not found"))?;
+    Ok(Json(if legacy_uri(&uri) {
+        json!(graph)
+    } else {
+        json!({"focal_relation":id,"graph":{"blocks":graph.blocks,"relations":canonical_relations(graph.relations)}})
+    }))
 }
 
 #[derive(Deserialize)]
@@ -712,9 +835,20 @@ async fn graph_path(
 
 async fn graph_path_post(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<PathInput>,
-) -> ApiResult<Json<inkcre_core::GraphPath>> {
-    graph_path_response(state, input).await
+) -> ApiResult<Json<Value>> {
+    let Json(result) = graph_path_response(state, input).await?;
+    if legacy_uri(&uri) {
+        return Ok(Json(json!(result)));
+    }
+    Ok(Json(match result.outcome {
+        inkcre_core::PathOutcome::Found => json!({"status":"found", "graph":{
+            "blocks":result.graph.blocks,"relations":canonical_relations(result.graph.relations)},
+            "block_path":result.block_ids,"relation_path":result.relation_ids}),
+        inkcre_core::PathOutcome::NotFound => json!({"status":"not_found"}),
+        inkcre_core::PathOutcome::LimitReached => json!({"status":"limit_reached"}),
+    }))
 }
 
 async fn graph_path_response(
@@ -800,21 +934,26 @@ async fn block_content(
 
 #[derive(Deserialize)]
 struct TypePageQuery {
-    #[serde(default = "default_limit")]
-    limit: i64,
+    limit: Option<i64>,
     cursor: Option<String>,
 }
 
 async fn job_types(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiQuery(query): ApiQuery<TypePageQuery>,
-) -> ApiResult<Json<Page<inkcre_core::JobType, String>>> {
-    Ok(Json(
-        state
-            .core
-            .job_types(query.limit, query.cursor.as_deref())
-            .await?,
-    ))
+) -> ApiResult<Json<Value>> {
+    resource_page(
+        &uri,
+        "job_types",
+        query.limit,
+        query.cursor,
+        |limit, cursor| {
+            let core = state.core.clone();
+            async move { core.job_types(limit, cursor.as_deref()).await }
+        },
+    )
+    .await
 }
 
 async fn job_type_get(
@@ -846,8 +985,7 @@ async fn job_type_delete(
 
 #[derive(Deserialize)]
 struct JobPageQuery {
-    #[serde(default = "default_limit")]
-    limit: i64,
+    limit: Option<i64>,
     cursor: Option<i64>,
     #[serde(rename = "type")]
     type_: Option<String>,
@@ -856,19 +994,16 @@ struct JobPageQuery {
 
 async fn jobs(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiQuery(query): ApiQuery<JobPageQuery>,
-) -> ApiResult<Json<Page<inkcre_core::Job, i64>>> {
-    Ok(Json(
+) -> ApiResult<Json<Value>> {
+    let limit = query.limit.or_else(|| (!legacy_uri(&uri)).then_some(20));
+    resource_page(&uri, "jobs", limit, query.cursor, |limit, cursor| {
         state
             .core
-            .jobs(
-                query.limit,
-                query.cursor,
-                query.type_.as_deref(),
-                query.status,
-            )
-            .await?,
-    ))
+            .jobs(limit, cursor, query.type_.as_deref(), query.status)
+    })
+    .await
 }
 
 async fn job_get(

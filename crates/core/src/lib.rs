@@ -40,6 +40,7 @@ use std::{sync::Arc, time::Duration};
 pub struct Core {
     pool: PgPool,
     pub(crate) knowledge_registry: Arc<knowledge::Registry>,
+    pub(crate) media_tools: Arc<std::sync::OnceLock<knowledge::MediaTools>>,
     pub(crate) observation: Arc<std::sync::RwLock<Option<std::sync::Weak<observability::Runtime>>>>,
 }
 
@@ -67,6 +68,7 @@ impl Core {
         Self {
             pool,
             knowledge_registry: Arc::new(knowledge::Registry::default()),
+            media_tools: Arc::default(),
             observation: Arc::new(std::sync::RwLock::new(None)),
         }
     }

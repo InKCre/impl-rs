@@ -1,0 +1,251 @@
+{
+  "TelegramMessage": {
+    "description": "Published 0.1.0 content shape retained for read compatibility.",
+    "properties": {
+      "message_id": {
+        "title": "Message Id",
+        "type": "integer"
+      },
+      "date": {
+        "format": "date-time",
+        "title": "Date",
+        "type": "string"
+      },
+      "text": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Text"
+      },
+      "caption": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Caption"
+      },
+      "reply_to_message_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Reply To Message Id"
+      },
+      "has_media": {
+        "default": false,
+        "title": "Has Media",
+        "type": "boolean"
+      },
+      "media_type": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Media Type"
+      }
+    },
+    "required": [
+      "message_id",
+      "date"
+    ],
+    "title": "TelegramMessage",
+    "type": "object"
+  },
+  "TelegramAttachment": {
+    "additionalProperties": false,
+    "description": "Retrieval and later-materialization facts for one Telegram file.",
+    "properties": {
+      "kind": {
+        "enum": [
+          "photo",
+          "animation",
+          "audio",
+          "document",
+          "sticker",
+          "video",
+          "video_note",
+          "voice"
+        ],
+        "title": "Kind",
+        "type": "string"
+      },
+      "file_id": {
+        "minLength": 1,
+        "title": "File Id",
+        "type": "string"
+      },
+      "file_unique_id": {
+        "minLength": 1,
+        "title": "File Unique Id",
+        "type": "string"
+      },
+      "filename": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Filename"
+      },
+      "mime_type": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Mime Type"
+      },
+      "file_size": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "File Size"
+      },
+      "width": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Width"
+      },
+      "height": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Height"
+      },
+      "duration": {
+        "anyOf": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Duration"
+      },
+      "title": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Title"
+      },
+      "performer": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Performer"
+      },
+      "emoji": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Emoji"
+      }
+    },
+    "required": [
+      "kind",
+      "file_id",
+      "file_unique_id"
+    ],
+    "title": "TelegramAttachment",
+    "type": "object"
+  },
+  "TelegramSourceConfig": {
+    "additionalProperties": false,
+    "properties": {
+      "bot_token": {
+        "format": "password",
+        "minLength": 1,
+        "title": "Bot token",
+        "type": "string"
+      },
+      "bound_user_id": {
+        "exclusiveMinimum": 0,
+        "title": "Bound User Id",
+        "type": "integer"
+      },
+      "download_attachments": {
+        "default": false,
+        "title": "Download Attachments",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "bot_token",
+      "bound_user_id"
+    ],
+    "title": "TelegramSourceConfig",
+    "type": "object"
+  }
+}

@@ -1,5 +1,6 @@
 mod collect;
 mod enrichment;
+mod ingress;
 mod parser;
 mod reconcile;
 mod resolver;
@@ -8,9 +9,9 @@ mod schema;
 use async_trait::async_trait;
 use inkcre_core::Core;
 use inkcre_extension_sdk::{
-    Capabilities, ContentContract, ContentKind, Descriptor, Extension, PROTOCOL_VERSION,
-    RelationSelection, ResolverCapability, ResolverRequest, RpcError, SDK_VERSION,
-    SourceCapability, SourceOutcome, SourceRequest, StartContext, serve,
+    Capabilities, ContentContract, ContentKind, Descriptor, Extension, HttpRequest, HttpResponse,
+    PROTOCOL_VERSION, RelationSelection, ResolverCapability, ResolverRequest, RpcError,
+    SDK_VERSION, SourceCapability, SourceOutcome, SourceRequest, StartContext, serve,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -119,6 +120,7 @@ impl Extension for Rss {
                 "materialize_enclosure".into(),
             ],
             capabilities: Capabilities {
+                http_ingress: Some(ingress::descriptor()),
                 sources: [
                     (
                         RSS_SOURCE,
@@ -172,6 +174,12 @@ impl Extension for Rss {
                 .map_err(|error| RpcError::from(Error::from(error)))?,
         );
         Ok(json!({"started":true}))
+    }
+    async fn http_request(
+        &mut self,
+        request: HttpRequest,
+    ) -> std::result::Result<HttpResponse, RpcError> {
+        ingress::handle(self.core()?, request).await
     }
     async fn source_collect(
         &mut self,

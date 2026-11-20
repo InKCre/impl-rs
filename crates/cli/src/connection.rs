@@ -40,11 +40,22 @@ pub enum Command {
     Check,
 }
 pub fn path(override_path: Option<PathBuf>) -> Result<PathBuf, Failure> {
-    override_path
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let path = override_path
         .or_else(|| {
-            std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".inkcre/cli/connections.json"))
+            home.as_ref()
+                .map(|p| p.join(".inkcre/cli/connections.json"))
         })
-        .ok_or_else(|| Failure::usage("需要 --connections-file"))
+        .ok_or_else(|| Failure::usage("需要 --connections-file"))?;
+    if path == Path::new("~") {
+        return home.ok_or_else(|| Failure::usage("无法展开主目录"));
+    }
+    if let Ok(relative) = path.strip_prefix("~/") {
+        return home
+            .map(|p| p.join(relative))
+            .ok_or_else(|| Failure::usage("无法展开主目录"));
+    }
+    Ok(path)
 }
 pub fn load(path: &Path) -> Result<Store, Failure> {
     match std::fs::read(path) {
@@ -144,11 +155,11 @@ pub async fn execute(
             )?;
             let ready = match client.ready().await {
                 Ok(value) => value,
-                Err(error) => json!({"error":error.detail}),
+                Err(error) => json!({"error":error.as_value()}),
             };
             let authenticated = match client.send("GET", "/peers/self", None, &[]).await {
                 Ok(value) => value,
-                Err(error) => json!({"error":error.detail}),
+                Err(error) => json!({"error":error.as_value()}),
             };
             Ok(json!({"readyz":ready,"authenticated_read":authenticated}))
         }

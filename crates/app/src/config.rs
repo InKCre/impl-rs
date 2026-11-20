@@ -61,6 +61,9 @@ pub struct ServeArgs {
     /// 可信本地扩展 manifest；HTTP 只能安装此目录清单中的名称
     #[arg(long, env = "INKCRE_EXTENSION_MANIFESTS", value_delimiter = ',')]
     pub extension_manifest: Vec<PathBuf>,
+    /// 包含受信任 ffprobe 和 ffmpeg 的目录，用于启用音视频 Resolver
+    #[arg(long, env = "INKCRE_MEDIA_TOOLS_DIR")]
+    pub media_tools_dir: Option<PathBuf>,
     #[arg(long, env = "INKCRE_PEER_LEASE_SECONDS", default_value_t = 60)]
     pub lease_seconds: u32,
     #[arg(long, env = "INKCRE_REQUEST_TIMEOUT_SECONDS", default_value_t = 30)]

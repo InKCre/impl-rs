@@ -7,6 +7,7 @@ mod config_routes;
 mod content;
 mod entity_routes;
 mod error;
+mod extension_ingress;
 mod extension_v2_routes;
 mod knowledge_routes;
 mod lexical_routes;
@@ -20,6 +21,7 @@ mod routes;
 mod semantic_routes;
 mod sink_routes;
 mod source_routes;
+mod telemetry_routes;
 
 use std::{
     collections::BTreeMap,
@@ -111,6 +113,12 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     let core = Core::connect(&args.database.database_url, args.database.max_connections)
         .await
         .map_err(|error| error.to_string())?;
+    if let Some(directory) = &args.media_tools_dir {
+        let tools = inkcre_core::knowledge::MediaTools::from_directory(directory)
+            .map_err(|error| error.to_string())?;
+        tools.verify().await.map_err(|error| error.to_string())?;
+        tools.register(&core).map_err(|error| error.to_string())?;
+    }
     let sources = SourceRuntime::new(core.clone());
     let source_registry = sources.registry().clone();
     let mut agents = inkcre_core::agent::Runtime::new(core.clone());
@@ -188,6 +196,11 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         method: "POST".into(),
         path: "/organization/ruminate".into(),
     });
+    inbounds.push(inkcre_core::peer::HttpCapability {
+        id: "core.observability.v1".into(),
+        method: "POST".into(),
+        path: "/observability".into(),
+    });
     core.peer_publish_http(peer_id, &inbounds)
         .await
         .map_err(|error| error.to_string())?;
@@ -197,7 +210,8 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     let host = ExtensionHost::new(core.clone(), peer_id, args.state_dir.join("extensions"))
         .with_database_url(args.database.database_url.clone())
         .with_jobs(jobs)
-        .with_sources(sources);
+        .with_sources(sources)
+        .with_reserved_http_mounts(extension_ingress::RESERVED_MOUNTS);
     let lease_valid = Arc::new(AtomicBool::new(true));
     let (stop_tx, mut stop_rx) = watch::channel(false);
     let mut reconcile_stop = stop_rx.clone();
@@ -220,6 +234,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         }
     });
     let lease_core = core.clone();
+    let lease_host = host.clone();
     let lease_alive = lease_valid.clone();
     let lease_seconds = args.lease_seconds;
     let lease_task = tokio::spawn(async move {
@@ -232,7 +247,9 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
                     let valid=tokio::select! {
                         _=stop_rx.changed()=>break,
                         result=async {
-                            lease_core.peer_publish_http(peer_id, &inbounds).await?;
+                            let mut advertised = inbounds.clone();
+                            advertised.extend(lease_host.http_inbounds().await);
+                            lease_core.peer_publish_http(peer_id, &advertised).await?;
                             lease_core.peer_renew_lease(peer_id,lease_seconds as i32).await
                         }=>result.is_ok(),
                     };
@@ -265,7 +282,14 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
             };
         }
     }
-    let observations = inkcre_core::observability::Runtime::start(core.clone(), peer_id).await;
+    let observation_options = telemetry_routes::local_options();
+    let observations = inkcre_core::observability::Runtime::start_with_options(
+        core.clone(),
+        peer_id,
+        observation_options.clone(),
+    )
+    .await;
+    let telemetry = inkcre_core::observability::Relay::start(&core, &observation_options).await;
     let worker = worker.map(Worker::start);
     let notifier = worker.as_ref().map(|handle| handle.notifier());
     let cron = cron.map(CronScheduler::start);
@@ -293,10 +317,14 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     inkcre_core::extension::register_registry_config(&mut configs)
         .map_err(|error| error.to_string())?;
     inkcre_core::organization::register_configs(&mut configs).map_err(|error| error.to_string())?;
+    inkcre_core::knowledge::materialization::register_configs(&mut configs)
+        .map_err(|error| error.to_string())?;
     inkcre_core::observability::register_config(&mut configs).map_err(|error| error.to_string())?;
     let state = routes::AppState {
+        extension_http: Arc::new(tokio::sync::Semaphore::new(4)),
         core: core.clone(),
         observations: observations.clone(),
+        telemetry: telemetry.clone(),
         source_registry,
         agents,
         configs,
@@ -322,6 +350,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     let _ = reconcile_task.await;
     let _ = runtime_task.await;
     host.shutdown().await;
+    telemetry.shutdown();
     observations.shutdown().await;
     let cleared = core.peer_clear_lease(peer_id).await;
     core.close().await;

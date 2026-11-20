@@ -16,4 +16,6 @@ target/debug/inkcre extension-manifest --name inkcre/rss --version 0.1.0 \
 
 单次命令可以覆盖 `fetch_full_text`、`download_enclosures`、`target_storage_id`。附件存储依次选择本次命令的显式值、Source 的 `storage`、兼容旧配置的 `target_storage_id`（默认 PostgreSQL 二进制存储 `-4`）。保存 Source 配置不执行采集；重复提交会重新读取共享的当前配置与游标。
 
-持久化、条件请求、恢复与读取语义见 [RSS 内部设计](../../docs/30-unit-tdd/rss-extension.md)。Rust 公共 Registry 上传与下载尚未提供；此目录交付本机可信 executable 分发。
+启用扩展后，`POST /rss/enclosures/materialize` 接受 `{"enclosure_block_ids":[12,34],"target_storage_id":-4}`。它按输入顺序报告已有、已保存或失败的条目，单条失败不会丢弃其他条目的结果。未指定目标 Storage 时使用内建 PostgreSQL bytes。
+
+持久化、条件请求及读取方式见 [RSS 内部设计](../../docs/30-unit-tdd/rss-extension.md)。可使用本机可信产物或 Registry 已发布的精确 Rust 分发安装，见 [运行说明](../../docs/40-deployment/runtime.md#插件生命周期)。

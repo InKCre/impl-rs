@@ -17,7 +17,6 @@ pub fn inbounds() -> Vec<HttpCapability> {
     [
         (lexical::CAPABILITY, "/lexical-retrieval"),
         (semantic::CAPABILITY, "/semantic-retrieval"),
-        ("core.observability.v1", "/observability"),
     ]
     .into_iter()
     .map(|(id, path)| HttpCapability {

@@ -2,9 +2,11 @@
 //! Raw record reads remain available without a loaded Resolver or Storage handler.
 
 mod archive;
+mod audiovisual;
 mod builtins;
 mod draft;
 mod error;
+pub mod materialization;
 mod media;
 mod read_value;
 mod registry;
@@ -12,6 +14,7 @@ mod storage;
 mod types;
 
 pub use crate::graph::{DraftBlock, DraftRelation};
+pub use audiovisual::MediaTools;
 pub use builtins::{
     JsonResolver, decode_html_bytes, decode_unicode_bytes, detect_media_type, format_label,
     html_text,

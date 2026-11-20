@@ -59,8 +59,12 @@ enum Command {
         query: String,
         #[arg(long, required=true, value_parser=["lexical","semantic"])]
         mode: Vec<String>,
-        #[arg(long, default_value_t = 20)]
-        limit: u32,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: Option<u32>,
+        #[arg(long)]
+        min_score: Option<f64>,
+        #[arg(long, value_parser=["block","relation"])]
+        entity_type: Vec<String>,
         #[arg(long)]
         profile: Option<i64>,
         #[arg(long)]
@@ -69,6 +73,10 @@ enum Command {
     Graph {
         #[command(subcommand)]
         command: Graph,
+    },
+    Organization {
+        #[command(subcommand)]
+        command: Organization,
     },
     Job(Resource),
     Cron(Resource),
@@ -81,6 +89,15 @@ enum Command {
     Ai(Resource),
     EmbeddingProfile(Resource),
     Resolver(Resource),
+}
+#[derive(Subcommand)]
+enum Organization {
+    /// 为 Block 创建显式整理 Job。
+    Ruminate {
+        block_id: i64,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        timeout_seconds: Option<u32>,
+    },
 }
 #[derive(Args, Default)]
 struct Input {
@@ -102,7 +119,12 @@ impl Input {
             }
             _ => "{}".into(),
         };
-        serde_json::from_str(&text).map_err(|_| Failure::usage("输入必须为 JSON"))
+        let value: Value =
+            serde_json::from_str(&text).map_err(|_| Failure::usage("输入必须为 JSON"))?;
+        if !value.is_object() {
+            return Err(Failure::usage("输入必须为 JSON 对象"));
+        }
+        Ok(value)
     }
 }
 #[derive(Args)]
@@ -150,15 +172,31 @@ enum Action {
     },
     Types {
         id: Option<String>,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: Option<u32>,
+        #[arg(long)]
+        cursor: Option<String>,
     },
     Schemas {
         id: Option<String>,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: Option<u32>,
+        #[arg(long)]
+        cursor: Option<String>,
     },
     Tools {
         id: Option<String>,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: Option<u32>,
+        #[arg(long)]
+        cursor: Option<String>,
     },
     Models {
         id: Option<String>,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: Option<u32>,
+        #[arg(long)]
+        cursor: Option<String>,
     },
     Methods {
         target: String,
@@ -279,6 +317,14 @@ enum Graph {
     },
     Neighborhood {
         reference: String,
+        #[arg(long, value_parser=["in","out","both"])]
+        direction: Option<String>,
+        #[arg(long = "content")]
+        contents: Vec<String>,
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        limit: Option<u32>,
+        #[arg(long)]
+        cursor: Option<i64>,
     },
 }
 fn entity(reference: &str) -> Result<(&str, i64), Failure> {
@@ -324,6 +370,25 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
         .ok_or_else(|| Failure::usage("连接不存在"))?;
     let client = Client::new(selected)?;
     match cli.command {
+        Command::Organization {
+            command:
+                Organization::Ruminate {
+                    block_id,
+                    timeout_seconds,
+                },
+        } => {
+            client
+                .send(
+                    "POST",
+                    "/jobs",
+                    Some(json!({
+                        "type":"core.organization.rumination.explicit.v1",
+                        "parameters":{"block":block_id},"timeout_seconds":timeout_seconds
+                    })),
+                    &[],
+                )
+                .await
+        }
         Command::Query {
             question,
             sink_id,
@@ -381,15 +446,40 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
             mode,
             limit,
             profile,
+            min_score,
+            entity_type,
             peer,
         } => {
+            if !mode.iter().any(|mode| mode == "semantic")
+                && (profile.is_some() || min_score.is_some() || !entity_type.is_empty())
+            {
+                return Err(Failure::usage(
+                    "--profile / --min-score / --entity-type 需要 --mode semantic",
+                ));
+            }
             let mut results = Vec::new();
+            let mut seen = std::collections::BTreeSet::new();
             for mode in mode {
-                let body = if mode == "semantic" {
-                    json!({"query":query,"profile":profile,"options":{"limit":limit}})
-                } else {
-                    json!({"query":query,"limit":limit})
-                };
+                if !seen.insert(mode.clone()) {
+                    continue;
+                }
+                let mut body = json!({"query":query});
+                if mode == "semantic" {
+                    let mut options = json!({});
+                    if let Some(limit) = limit {
+                        options["limit"] = json!(limit);
+                    }
+                    if let Some(score) = min_score {
+                        options["min_score"] = json!(score);
+                    }
+                    if !entity_type.is_empty() {
+                        options["entity_types"] = json!(entity_type);
+                    }
+                    body["profile"] = json!(profile);
+                    body["options"] = options;
+                } else if let Some(limit) = limit {
+                    body["limit"] = json!(limit);
+                }
                 let result = client
                     .send(
                         "POST",
@@ -399,8 +489,14 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
                     )
                     .await;
                 results.push(match result {
-                    Ok(result) => json!({"mode":mode,"result":result}),
-                    Err(error) => json!({"mode":mode,"error":error.detail}),
+                    Ok(mut result) => {
+                        result
+                            .as_object_mut()
+                            .ok_or_else(|| Failure::usage("检索响应必须为对象"))?
+                            .insert("mode".into(), json!(mode));
+                        result
+                    }
+                    Err(error) => json!({"mode":mode,"error":error.as_value()}),
                 });
             }
             Ok(json!(results))
@@ -439,10 +535,30 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
                 object.insert("to_block_id".into(), json!(to));
                 client.send("POST", "/graph/path", Some(body), &[]).await
             }
-            Graph::Neighborhood { reference } => {
+            Graph::Neighborhood {
+                reference,
+                direction,
+                contents,
+                limit,
+                cursor,
+            } => {
                 let (kind, id) = entity(&reference)?;
+                if kind == "relation"
+                    && (direction.is_some()
+                        || !contents.is_empty()
+                        || limit.is_some()
+                        || cursor.is_some())
+                {
+                    return Err(Failure::usage("Relation 邻域不接受 Block 遍历参数"));
+                }
+                let mut query = vec![
+                    ("direction", direction),
+                    ("limit", limit.map(|v| v.to_string())),
+                    ("cursor", cursor.map(|v| v.to_string())),
+                ];
+                query.extend(contents.into_iter().map(|value| ("contents", Some(value))));
                 client
-                    .send("GET", &format!("/{kind}s/{id}/neighborhood"), None, &[])
+                    .send("GET", &format!("/{kind}s/{id}/neighborhood"), None, &query)
                     .await
             }
         },
@@ -486,6 +602,7 @@ async fn main() {
             output::emit(value, compact, directory, table, fields).and_then(|_| {
                 if failed {
                     Err(Failure {
+                        http_status: None,
                         code: 1,
                         detail: json!("结果中存在逐项错误"),
                     })
@@ -497,7 +614,7 @@ async fn main() {
         Err(error) => Err(error),
     };
     if let Err(error) = result {
-        eprintln!("{}", json!({"detail":error.detail}));
+        eprintln!("{}", error.as_value());
         std::process::exit(error.code);
     }
 }

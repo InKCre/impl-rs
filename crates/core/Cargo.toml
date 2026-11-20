@@ -20,6 +20,8 @@ infer.workspace = true
 inkcre-extension-sdk.workspace = true
 jsonschema.workspace = true
 jsonwebtoken.workspace = true
+opentelemetry-proto = { version = "0.31", default-features = false, features = ["gen-tonic-messages", "trace", "logs", "metrics"] }
+prost = "0.14"
 lopdf = { version = "0.38", default-features = false }
 reqwest.workspace = true
 scraper.workspace = true
@@ -30,6 +32,7 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+tempfile = "3"
 tokio.workspace = true
 tracing.workspace = true
 unicode-casefold = "0.2"

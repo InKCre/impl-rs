@@ -24,6 +24,7 @@ pub(crate) fn resolvers() -> Vec<Arc<dyn Resolver>> {
     ];
     resolvers.extend(super::media::resolvers());
     resolvers.extend(super::archive::resolvers());
+    resolvers.extend(super::audiovisual::resolvers());
     resolvers.extend(crate::organization::resolvers());
     resolvers
 }

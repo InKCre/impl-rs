@@ -220,6 +220,29 @@ impl Resolver for MediaResolver {
         }
         let (bytes, solved) = self.inspect(context, options.refresh).await?;
         if !self.pdf {
+            if options.materialize_missing {
+                let core = context.knowledge.core();
+                if let Some(config) = super::materialization::image_config(core).await? {
+                    let mime = solved["detected_media_type"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .or_else(|| {
+                            solved["format"]
+                                .as_str()
+                                .map(|format| format!("image/{format}"))
+                        });
+                    if let Some(mime_type) = mime {
+                        super::materialization::try_materialize_model_text(
+                            core, context.block.id, "text", config.text_model,
+                            "Transcribe only written text visibly present in the image. Return plain text with no explanation; return no content when none exists.",
+                            crate::ai::ContentPart::Image(crate::ai::Media {
+                                data: bytes, mime_type,
+                                transfer_url: context.transfer_url().await?,
+                            }),
+                        ).await;
+                    }
+                }
+            }
             return Ok(Some(facts(
                 "image",
                 &solved,
