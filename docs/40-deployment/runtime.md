@@ -61,6 +61,8 @@ HTTP 请求默认有 30 秒预算，业务请求体上限为 8 MiB。Source/Job 
 
 构建并整理当前平台的安装目录时，运行 `cargo build --release --locked --workspace --bins`，然后运行 `python3 scripts/package_runtime.py .runtime/staged`。目录包含 HTTP app、`inkcre-cli`、扩展可执行文件及对应 manifest。`source.json` 记录打包时的源码和 SDK checkout。部署者将所需扩展 manifest 路径加入启动配置。
 
+手动运行 `impl-rs checks` GitHub Actions 工作流可构建并下载当前提交的 Linux x86-64 安装包。下载 workflow artifact 后，用 `tar -xzf inkcre-linux-x86_64.tar.gz` 解包到新的安装目录。
+
 Rust 分发发布者从同一份干净 checkout 构建各目标并分别保留安装目录。`scripts/publish_extension.py` 读取其中的 manifest、摘要和源码记录，默认只做本机预检。确认目标 Registry 后使用 `--execute`，脚本按同一 Release 准备、上传各目标、校验服务端摘要并提交发布，凭据只通过 `INKCRE_REGISTRY_TOKEN` 传入。例如在 preview 中发布单一目标：
 
 ```sh
