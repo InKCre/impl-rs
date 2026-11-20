@@ -416,20 +416,54 @@ impl Core {
         target: i32,
         options: PathOptions,
     ) -> Result<GraphPath> {
-        if options.max_hops > 32
+        self.find_path_with_contract(source, target, options, false)
+            .await
+    }
+
+    /// Canonical graph-navigation contract, shared by REST and ordinary Tools.
+    /// Missing endpoints are a negative search result, and the hop budget is 0..=8.
+    pub async fn find_path_canonical(
+        &self,
+        source: i32,
+        target: i32,
+        options: PathOptions,
+    ) -> Result<GraphPath> {
+        self.find_path_with_contract(source, target, options, true)
+            .await
+    }
+
+    async fn find_path_with_contract(
+        &self,
+        source: i32,
+        target: i32,
+        options: PathOptions,
+        canonical: bool,
+    ) -> Result<GraphPath> {
+        let max_hops = if canonical { 8 } else { 32 };
+        if options.max_hops > max_hops
             || !(1..=10000).contains(&options.max_explored_blocks)
-            || options.contents.len() > 100
+            || (!canonical && options.contents.len() > 100)
         {
-            return Err(Error::InvalidInput(
-                "path requires at most 32 hops, 1..=10000 explored Blocks and at most 100 contents"
-                    .into(),
-            ));
+            return Err(Error::InvalidInput(if canonical {"path requires 0..=8 hops and 1..=10000 explored Blocks"} else {"path requires at most 32 hops, 1..=10000 explored Blocks and at most 100 contents"}.into()));
         }
+        let empty = |outcome| GraphPath {
+            outcome,
+            graph: GraphModel::default(),
+            block_ids: vec![],
+            relation_ids: vec![],
+        };
         if self.block_get(source).await?.is_none() || self.block_get(target).await?.is_none() {
-            return Err(Error::NotFound("path endpoint"));
+            return if canonical {
+                Ok(empty(PathOutcome::NotFound))
+            } else {
+                Err(Error::NotFound("path endpoint"))
+            };
         }
         if source == target {
             return self.assemble_path(vec![source], vec![]).await;
+        }
+        if canonical && options.max_hops == 0 {
+            return Ok(empty(PathOutcome::LimitReached));
         }
         let mut queue = VecDeque::from([(source, 0u8)]);
         let mut previous: HashMap<i32, (i32, Relation)> = HashMap::new();

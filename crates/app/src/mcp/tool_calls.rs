@@ -322,8 +322,16 @@ pub(super) async fn call(core: &Core, name: &str, args: Value) -> Result<ToolOut
             ))
         }
         "find_path" => {
+            let max_hops = if let Some(value) = args.get("max_hops") {
+                value
+                    .as_u64()
+                    .filter(|value| *value <= 8)
+                    .ok_or("max_hops must be an integer between 0 and 8")? as u8
+            } else {
+                4
+            };
             let path = core
-                .find_path(
+                .find_path_canonical(
                     super::number(&args, "from_block")?,
                     super::number(&args, "to_block")?,
                     PathOptions {
@@ -331,7 +339,7 @@ pub(super) async fn call(core: &Core, name: &str, args: Value) -> Result<ToolOut
                             args.get("direction").cloned().unwrap_or(json!("both")),
                         )?,
                         contents: vec![],
-                        max_hops: args["max_hops"].as_u64().unwrap_or(4) as u8,
+                        max_hops,
                         max_explored_blocks: 1000,
                     },
                 )

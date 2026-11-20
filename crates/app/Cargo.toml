@@ -20,7 +20,7 @@ jsonwebtoken.workspace = true
 percent-encoding = "2"
 schemars.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2.workspace = true
 tokio.workspace = true
 tower-http.workspace = true

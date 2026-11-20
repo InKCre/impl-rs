@@ -83,9 +83,9 @@ fn build() -> Value {
     let mut doc = Document::new();
     doc.json::<core::BlockInput>("/blocks", "post", 201);
     doc.patch::<core::BlockInput>("/blocks/{block_id}", &[]);
-    doc.json::<crate::routes::RelationRequest>("/relations", "post", 201);
+    doc.json::<crate::routes::RelationRequest>("/relations", "post", 200);
     doc.patch::<crate::routes::RelationRequest>("/relations/{relation_id}", &[]);
-    doc.json::<core::GraphInput>("/graph", "post", 200);
+    doc.json::<crate::entity_routes::CanonicalGraphForm>("/graph", "post", 200);
     doc.json::<crate::entity_routes::EntityForm>("/entities/get", "post", 200);
     doc.json::<crate::routes::PathInput>("/graph/path", "post", 200);
     doc.json::<core::graph_components::ComponentsRequest>("/graph/components", "post", 200);
@@ -181,7 +181,6 @@ fn build() -> Value {
         "/configs/{key}",
         "/agents/{agent_id}",
         "/sinks/{sink_id}",
-        "/extensions/{namespace}/{name}/selection",
     ] {
         doc.operation(path, "delete", None, 204);
     }
@@ -196,6 +195,12 @@ fn build() -> Value {
         doc.operation(path, "post", None, 200);
     }
     doc.operation("/crons/{cron_id}/run", "post", None, 201);
+    doc.operation(
+        "/extensions/{namespace}/{name}/selection",
+        "delete",
+        None,
+        200,
+    );
     doc.finish()
 }
 

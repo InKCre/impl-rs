@@ -15,6 +15,9 @@ pub enum Error {
     Admission(String),
     #[error("database operation failed")]
     Database(#[source] sqlx::Error),
+    /// Preserve PostgreSQL reference/CHECK provenance for explicit write adapters.
+    #[error("database reference or invariant conflict")]
+    DatabaseConstraint(#[source] sqlx::Error),
     #[error("this runtime cannot execute the requested capability: {0}")]
     Unsupported(String),
     #[error("runtime capability is unavailable: {0}")]
@@ -25,13 +28,9 @@ impl From<sqlx::Error> for Error {
     fn from(error: sqlx::Error) -> Self {
         if let sqlx::Error::Database(ref database) = error {
             match database.code().as_deref() {
-                Some("23503") => {
-                    return Self::InvalidInput(
-                        "referenced record does not exist or is in use".into(),
-                    );
-                }
+                Some("23503" | "23514") => return Self::DatabaseConstraint(error),
                 Some("23505") => return Self::Conflict("record already exists".into()),
-                Some("23514" | "23502" | "22P02") => {
+                Some("23502" | "22P02") => {
                     return Self::InvalidInput("value violates the persisted contract".into());
                 }
                 _ => {}

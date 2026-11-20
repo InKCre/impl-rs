@@ -13,6 +13,7 @@ pub struct ApiError {
     pub status: StatusCode,
     pub code: &'static str,
     pub message: String,
+    constraint: Option<String>,
 }
 
 impl ApiError {
@@ -21,6 +22,7 @@ impl ApiError {
             status,
             code,
             message: message.into(),
+            constraint: None,
         }
     }
 
@@ -35,19 +37,53 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(json!({"error":{"code": self.code,"message":self.message}})),
-        )
-            .into_response()
+        let mut body = json!({"error":{"code":self.code,"message":self.message}});
+        if let Some(constraint) = self.constraint {
+            body["error"]["constraint"] = json!(constraint);
+        }
+        (self.status, Json(body)).into_response()
     }
+}
+
+/// Only explicit canonical writes translate database-owned FK/CHECK conflicts.
+/// Reads, transport failures and generated-key collisions retain server-failure semantics.
+pub(crate) fn database_write(error: inkcre_core::Error) -> ApiError {
+    if let inkcre_core::Error::DatabaseConstraint(sql_error)
+    | inkcre_core::Error::Database(sql_error) = &error
+        && let Some(database) = sql_error.as_database_error()
+        && matches!(database.code().as_deref(), Some("23503" | "23514"))
+    {
+        let mut response = ApiError::new(
+            StatusCode::CONFLICT,
+            "constraint_conflict",
+            database.message(),
+        );
+        response.constraint = database.constraint().map(str::to_owned);
+        return response;
+    }
+    error.into()
 }
 
 impl From<inkcre_core::Error> for ApiError {
     fn from(error: inkcre_core::Error) -> Self {
         use inkcre_core::Error;
+        if let Error::DatabaseConstraint(sql_error) = &error {
+            let foreign_key = sql_error
+                .as_database_error()
+                .and_then(|database| database.code())
+                .as_deref()
+                == Some("23503");
+            let message = if foreign_key {
+                "invalid input: referenced record does not exist or is in use"
+            } else {
+                "invalid input: value violates the persisted contract"
+            };
+            return Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid_input", message);
+        }
         let (status, code) = match &error {
-            Error::InvalidInput(_) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_input"),
+            Error::InvalidInput(_) | Error::DatabaseConstraint(_) => {
+                (StatusCode::UNPROCESSABLE_ENTITY, "invalid_input")
+            }
             Error::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             Error::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
             Error::Admission(_) | Error::Database(_) => {

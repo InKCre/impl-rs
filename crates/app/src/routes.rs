@@ -323,12 +323,19 @@ async fn recently_created_blocks(
 
 async fn block_create(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<BlockInput>,
 ) -> ApiResult<(StatusCode, Json<Block>)> {
-    Ok((
-        StatusCode::CREATED,
-        Json(state.core.knowledge().create_block(input).await?),
-    ))
+    let block = if legacy_uri(&uri) {
+        state.core.knowledge().create_block(input).await?
+    } else {
+        state
+            .core
+            .block_create(input)
+            .await
+            .map_err(crate::error::database_write)?
+    };
+    Ok((StatusCode::CREATED, Json(block)))
 }
 
 async fn block_get(
@@ -346,10 +353,25 @@ async fn block_get(
 
 async fn block_patch(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiPath(id): ApiPath<i32>,
     ApiJson(input): ApiJson<BlockPatch>,
-) -> ApiResult<Json<Block>> {
-    Ok(Json(state.core.knowledge().patch_block(id, input).await?))
+) -> ApiResult<Json<Value>> {
+    let legacy = legacy_uri(&uri);
+    let block = if legacy {
+        state.core.knowledge().patch_block(id, input).await?
+    } else {
+        state
+            .core
+            .block_patch(id, input)
+            .await
+            .map_err(crate::error::database_write)?
+    };
+    let mut value = json!(block);
+    if !legacy {
+        value["type"] = json!("block");
+    }
+    Ok(Json(value))
 }
 
 async fn block_delete(
@@ -425,12 +447,25 @@ async fn relation_create(
     OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<RelationRequest>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
+    let legacy = legacy_uri(&uri);
+    let relation = state
+        .core
+        .relation_create(input.into())
+        .await
+        .map_err(|error| {
+            if legacy {
+                ApiError::from(error)
+            } else {
+                crate::error::database_write(error)
+            }
+        })?;
     Ok((
-        StatusCode::CREATED,
-        Json(relation_response(
-            &uri,
-            state.core.relation_create(input.into()).await?,
-        )),
+        if legacy {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
+        Json(relation_response(&uri, relation)),
     ))
 }
 
@@ -455,10 +490,23 @@ async fn relation_patch(
     ApiPath(id): ApiPath<i32>,
     ApiJson(input): ApiJson<RelationPatch>,
 ) -> ApiResult<Json<Value>> {
-    Ok(Json(relation_response(
-        &uri,
-        state.core.relation_patch(id, input).await?,
-    )))
+    let legacy = legacy_uri(&uri);
+    let relation = state
+        .core
+        .relation_patch(id, input)
+        .await
+        .map_err(|error| {
+            if legacy {
+                ApiError::from(error)
+            } else {
+                crate::error::database_write(error)
+            }
+        })?;
+    let mut value = relation_response(&uri, relation);
+    if !legacy {
+        value["type"] = json!("relation");
+    }
+    Ok(Json(value))
 }
 
 async fn relation_delete(
@@ -803,8 +851,10 @@ pub(crate) struct PathInput {
     #[serde(default)]
     contents: Vec<String>,
     #[serde(default = "default_depth")]
+    #[schemars(range(min = 0, max = 8))]
     max_hops: u8,
     #[serde(default = "default_edges")]
+    #[schemars(range(min = 1, max = 10000))]
     max_explored_blocks: u32,
 }
 fn default_depth() -> u8 {
@@ -843,8 +893,27 @@ async fn graph_path_post(
     OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<PathInput>,
 ) -> ApiResult<Json<Value>> {
-    let Json(result) = graph_path_response(state, input).await?;
-    if legacy_uri(&uri) {
+    let legacy = legacy_uri(&uri);
+    let Json(result) = if legacy {
+        graph_path_response(state, input).await?
+    } else {
+        Json(
+            state
+                .core
+                .find_path_canonical(
+                    input.source,
+                    input.target,
+                    inkcre_core::PathOptions {
+                        direction: input.direction,
+                        contents: input.contents,
+                        max_hops: input.max_hops,
+                        max_explored_blocks: input.max_explored_blocks,
+                    },
+                )
+                .await?,
+        )
+    };
+    if legacy {
         return Ok(Json(json!(result)));
     }
     Ok(Json(match result.outcome {
@@ -1026,9 +1095,16 @@ async fn job_get(
 
 async fn job_submit(
     State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
     ApiJson(input): ApiJson<inkcre_core::JobInput>,
 ) -> ApiResult<(StatusCode, Json<inkcre_core::Job>)> {
-    let job = state.core.job_submit(input).await?;
+    let job = state.core.job_submit(input).await.map_err(|error| {
+        if !legacy_uri(&uri) && matches!(&error, inkcre_core::Error::NotFound("job type")) {
+            ApiError::invalid("unknown Job type")
+        } else {
+            error.into()
+        }
+    })?;
     if let Some(worker) = &state.worker {
         worker.notify_job(job.id);
     }
