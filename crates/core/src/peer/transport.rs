@@ -234,57 +234,110 @@ impl Core {
             if let Some(body) = object.get("body") {
                 request = request.json(body)
             }
-            let mut response = match request.send().await {
-                Ok(response) => response,
-                Err(error) if error.is_connect() => {
-                    if target.is_some() {
-                        break;
-                    } else {
-                        continue;
+            match self.peer_http_attempt(&client, peer.id, request).await? {
+                Some(result) => return Ok(result),
+                None if target.is_some() => break,
+                None => continue,
+            }
+        }
+
+        Err(DelegationError::Unavailable)
+    }
+    async fn peer_http_attempt(
+        &self,
+        client: &reqwest::Client,
+        peer: Uuid,
+        request: reqwest::RequestBuilder,
+    ) -> std::result::Result<Option<Value>, DelegationError> {
+        let operation = self.client_operation(
+            "peer.http",
+            json!({"inkcre.peer.target_id":peer})
+                .as_object()
+                .expect("metadata object")
+                .clone(),
+        );
+        let observation = operation.clone();
+        operation
+            .run(async {
+                let mut request = request.build().map_err(|_| DelegationError::Protocol)?;
+                let carrier = self.trace_carrier();
+                if let Some(parent) = carrier.traceparent {
+                    // The transport owns Trace Context, including removal of duplicate
+                    // caller headers. No baggage or caller-supplied tracing fields leak in.
+                    request.headers_mut().remove("traceparent");
+                    request.headers_mut().remove("tracestate");
+                    request.headers_mut().insert(
+                        "traceparent",
+                        reqwest::header::HeaderValue::from_str(&parent)
+                            .map_err(|_| DelegationError::Protocol)?,
+                    );
+                    if let Some(state) = carrier.tracestate {
+                        request.headers_mut().insert(
+                            "tracestate",
+                            reqwest::header::HeaderValue::from_str(&state)
+                                .map_err(|_| DelegationError::Protocol)?,
+                        );
                     }
                 }
-                Err(error) if error.is_builder() => return Err(DelegationError::Protocol),
-                Err(_) => return Err(DelegationError::OutcomeUnknown),
-            };
-            if response
-                .headers()
-                .get(EXECUTION_HEADER)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.trim().eq_ignore_ascii_case("not-executed"))
-            {
-                if target.is_some() { break } else { continue }
-            }
-            let status = response.status().as_u16();
-            let mut response_headers: BTreeMap<String, Vec<String>> = BTreeMap::new();
-            for (name, value) in response.headers() {
-                if name != EXECUTION_HEADER {
-                    response_headers.entry(name.to_string()).or_default().push(
-                        value
-                            .to_str()
-                            .map_err(|_| DelegationError::Protocol)?
-                            .to_owned(),
-                    );
+                let mut response = match client.execute(request).await {
+                    Ok(response) => response,
+                    Err(error) if error.is_connect() => {
+                        observation.set_attribute("inkcre.peer.outcome", json!("not_executed"));
+                        observation.set_outcome(crate::observability::Outcome::Error);
+                        return Ok(None);
+                    }
+                    Err(error) if error.is_builder() => return Err(DelegationError::Protocol),
+                    Err(_) => {
+                        observation.set_attribute("inkcre.peer.outcome", json!("unknown"));
+                        return Err(DelegationError::OutcomeUnknown);
+                    }
+                };
+                if response
+                    .headers()
+                    .get(EXECUTION_HEADER)
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|v| v.trim().eq_ignore_ascii_case("not-executed"))
+                {
+                    observation.set_attribute("inkcre.peer.outcome", json!("not_executed"));
+                    observation.set_outcome(crate::observability::Outcome::Error);
+                    return Ok(None);
                 }
-            }
-            let mut bytes = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|_| DelegationError::OutcomeUnknown)?
-            {
-                if bytes.len().saturating_add(chunk.len()) > 8 * 1024 * 1024 {
-                    return Err(DelegationError::Protocol);
+                let status = response.status().as_u16();
+                observation.set_attribute("inkcre.peer.outcome", json!("responded"));
+                observation.set_attribute("http.response.status_code", json!(status));
+                if status >= 500 {
+                    observation.set_outcome(crate::observability::Outcome::Error);
                 }
-                bytes.extend_from_slice(&chunk);
-            }
-            let mut result = json!({"status":status,"headers":response_headers});
-            if !bytes.is_empty() {
-                result["body"] =
-                    serde_json::from_slice(&bytes).map_err(|_| DelegationError::Protocol)?;
-            }
-            return Ok(result);
-        }
-        Err(DelegationError::Unavailable)
+                let mut response_headers: BTreeMap<String, Vec<String>> = BTreeMap::new();
+                for (name, value) in response.headers() {
+                    if name != EXECUTION_HEADER {
+                        response_headers.entry(name.to_string()).or_default().push(
+                            value
+                                .to_str()
+                                .map_err(|_| DelegationError::Protocol)?
+                                .to_owned(),
+                        );
+                    }
+                }
+                let mut bytes = Vec::new();
+                while let Some(chunk) = response
+                    .chunk()
+                    .await
+                    .map_err(|_| DelegationError::OutcomeUnknown)?
+                {
+                    if bytes.len().saturating_add(chunk.len()) > 8 * 1024 * 1024 {
+                        return Err(DelegationError::Protocol);
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                let mut result = json!({"status":status,"headers":response_headers});
+                if !bytes.is_empty() {
+                    result["body"] =
+                        serde_json::from_slice(&bytes).map_err(|_| DelegationError::Protocol)?;
+                }
+                Ok(Some(result))
+            })
+            .await
     }
 }
 

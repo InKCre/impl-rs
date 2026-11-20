@@ -111,7 +111,20 @@ impl Tool for ResolverTool {
                                     .invoke(call.block_id, &call.method, call.arguments)
                                     .await
                                 {
-                                    Ok(value) => row["result"] = value,
+                                    Ok(value) => {
+                                        self.0.record_event(
+                                            "inkcre.entity.read",
+                                            json!({
+                                                "inkcre.entity.read.kind": "resolved",
+                                                "inkcre.entity.block_ids": [call.block_id],
+                                                "inkcre.entity.read.count": 1,
+                                            })
+                                            .as_object()
+                                            .expect("metadata object")
+                                            .clone(),
+                                        );
+                                        row["result"] = value;
+                                    }
                                     Err(error) => {
                                         row["error"] = json!("resolver_read_failed");
                                         row["message"] = json!(error.to_string());

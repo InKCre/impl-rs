@@ -49,6 +49,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Usage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+    pub reasoning_output_tokens: Option<u64>,
+    pub finish_reasons: Vec<String>,
 }
 
 /// An exact dialect binding. Provider configuration is local to the execution
@@ -401,6 +404,32 @@ fn record_usage(
         if let Some(value) = value {
             observation.set_attribute(&format!("gen_ai.usage.{direction}_tokens"), json!(value));
         }
+    }
+    for (key, value) in [
+        (
+            "gen_ai.usage.cache_read.input_tokens",
+            usage.cache_read_input_tokens,
+        ),
+        (
+            "gen_ai.usage.reasoning.output_tokens",
+            usage.reasoning_output_tokens,
+        ),
+    ] {
+        if let Some(value) = value.filter(|v| *v <= i64::MAX as u64) {
+            observation.set_attribute(key, json!(value));
+        }
+    }
+    if !usage.finish_reasons.is_empty() {
+        let reasons = usage
+            .finish_reasons
+            .iter()
+            .take(16)
+            .map(|v| match v.as_str() {
+                "stop" | "length" | "tool_calls" | "content_filter" | "function_call" => v.as_str(),
+                _ => "other",
+            })
+            .collect::<Vec<_>>();
+        observation.set_attribute("gen_ai.response.finish_reasons", json!(reasons));
     }
     core.record_ai_usage(operation, usage.input_tokens, usage.output_tokens);
 }

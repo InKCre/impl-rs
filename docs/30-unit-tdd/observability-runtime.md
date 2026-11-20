@@ -43,3 +43,11 @@ AI 的 ai.chat/ai.embed scope 记录目录模型标识、方言、能力类型�
 Trace 与 event-log 各有 256 条等待队列，批次最多 256，最长 5 秒触发导出。失败批次不重试，不影响调用者。累计 metrics 每 30 秒导出，最多保留 2000 组 instrument/label；duration 使用固定 14 个秒级边界，计数器保留整数精度。metadata 最多 64 个字段，字符串限制 256 字符，数组限制 32 项，并按显式白名单过滤。记录关闭拒绝新输入，三信号并发排空，每个任务最多等待 32 秒；未完成记录计入 exporter dropped，再撤销 Relay 私有连接并关闭数据库。
 
 已以真实 HTTP、原生 PostgreSQL、独立 Worker 和 loopback protobuf 接收端验证：远端 parent、持久 Job carrier、独立 execution link、handler/event 关联、实例隔离、取消 scope、三信号排空和 2 万事件压力下的有界丢弃。真实 Agent 两轮模型调用及 tool、AI chat/embed usage 和 Cron 物化均通过；检查导出 wire 不含 fixture 的业务内容、凭据或原始 tool-call ID。未引入自动化测试套件或数据库 migration。
+
+Peer HTTP 每个候选的实际发送独立建立 peer.http CLIENT span。传输层用当前 scope 的 traceparent/tracestate 替换 payload 中同名 header，远端 http.server 直接接续该客户端 span。失败切换仍只依据连接前失败或明确 not-executed，观测字段区分 not_executed、unknown、responded；HTTP 5xx 记录错误 outcome，保留已经响应的业务结果。认证、URL、query、请求与响应 body 不进入 span。
+
+AI 的 provider 数字字段另外支持 gen_ai.usage.cache_read.input_tokens 与 gen_ai.usage.reasoning.output_tokens，限制为非负、非 bool、int64 范围内的整数。gen_ai.response.finish_reasons 最多 16 项，仅保留 stop/length/tool_calls/content_filter/function_call，其他值转为 other。SSE 终态 usage-only chunk 替换前面的 totals，保留前面已收到的结束原因；不会重复累加分块 totals。
+
+Agent retrieve 工具仅在对应分支成功后发 inkcre.retrieval.candidates，内容为检索方法、实体 ID 和候选数量。get_entities 发 persisted 的 inkcre.entity.read，Resolver invoke 的成功项发 resolved 的同名事件。错误项和 describe 不产生“已读取”的事件；这些事件不复制查询文本、实体内容、Resolver 参数或返回值。点位位于相应 Agent 适配层，与 canonical Python 的业务边界一致。
+
+上述增强已以独立 Peer 入站和出站、伪造 payload carrier、not-executed/unknown/500 接收端、五工具 Agent、JSON 和 Alibaba SSE 模型响应联合验收。固定规范字段、远端 span 父子关系和外发 wire 内容均已检查。

@@ -87,9 +87,25 @@ impl Tool for ReadTool {
                 .await;
             let mut result = serde_json::Map::new();
             if let Some(branch) = branches.lexical {
+                if let Ok(result) = &branch {
+                    self.core.record_event("inkcre.retrieval.candidates", json!({
+                        "inkcre.retrieval.method": "lexical",
+                        "inkcre.entity.block_ids": result.matches.iter().map(|m|m.block.id).collect::<Vec<_>>(),
+                        "inkcre.entity.relation_ids": [],
+                        "inkcre.retrieval.candidate_count": result.matches.len(),
+                    }).as_object().expect("metadata object").clone());
+                }
                 result.insert("lexical".into(),match branch{Err(error)=>json!({"error":"LexicalRetrievalError","message":error.to_string()}),Ok(branch)=>json!({"matches":branch.matches.into_iter().map(|m|json!({"entity":{"entity_type":"block","entity_id":m.block.id},"label":m.label,"excerpt":m.excerpt,"evidence":m.evidence,"rank":m.rank})).collect::<Vec<_>>()})});
             }
             if let Some(branch) = branches.semantic {
+                if let Ok(result) = &branch {
+                    self.core.record_event("inkcre.retrieval.candidates", json!({
+                        "inkcre.retrieval.method": "semantic",
+                        "inkcre.entity.block_ids": result.matches.iter().filter(|m|m.kind=="block").filter_map(|m|m.entity["id"].as_i64()).collect::<Vec<_>>(),
+                        "inkcre.entity.relation_ids": result.matches.iter().filter(|m|m.kind=="relation").filter_map(|m|m.entity["id"].as_i64()).collect::<Vec<_>>(),
+                        "inkcre.retrieval.candidate_count": result.matches.len(),
+                    }).as_object().expect("metadata object").clone());
+                }
                 result.insert("semantic".into(),match branch{Err(error)=>json!({"error":"SemanticRetrievalError","message":error.to_string()}),Ok(branch)=>json!({"profile":branch.profile,"metric":branch.metric,"matches":branch.matches.into_iter().map(|m|json!({"entity":{"entity_type":m.kind,"entity_id":m.entity["id"]},"score":m.score})).collect::<Vec<_>>()})});
             }
             return Ok(Value::Object(result));
@@ -103,6 +119,18 @@ impl Tool for ReadTool {
         }
         if input.entities.is_empty() {
             let rows:Vec<crate::Block>=sqlx::query_as("SELECT id,storage,resolver,content,created_at,updated_at FROM inkcre.blocks ORDER BY random() LIMIT $1").bind(input.random_count).fetch_all(self.core.pool()).await.map_err(failed)?;
+            self.core.record_event(
+                "inkcre.entity.read",
+                json!({
+                    "inkcre.entity.read.kind": "persisted",
+                    "inkcre.entity.block_ids": rows.iter().map(|b|b.id).collect::<Vec<_>>(),
+                    "inkcre.entity.relation_ids": [],
+                    "inkcre.entity.read.count": rows.len(),
+                })
+                .as_object()
+                .expect("metadata object")
+                .clone(),
+            );
             return serde_json::to_value(rows).map_err(failed);
         }
         if input
@@ -129,6 +157,30 @@ impl Tool for ReadTool {
             .entity_records(&blocks, &relations)
             .await
             .map_err(failed)?;
+        let block_ids = input
+            .entities
+            .iter()
+            .filter(|r| r.kind == "block" && records.blocks.contains_key(&r.id))
+            .map(|r| r.id)
+            .collect::<Vec<_>>();
+        let relation_ids = input
+            .entities
+            .iter()
+            .filter(|r| r.kind == "relation" && records.relations.contains_key(&r.id))
+            .map(|r| r.id)
+            .collect::<Vec<_>>();
+        self.core.record_event(
+            "inkcre.entity.read",
+            json!({
+                "inkcre.entity.read.kind": "persisted",
+                "inkcre.entity.block_ids": block_ids,
+                "inkcre.entity.relation_ids": relation_ids,
+                "inkcre.entity.read.count": block_ids.len()+relation_ids.len(),
+            })
+            .as_object()
+            .expect("metadata object")
+            .clone(),
+        );
         Ok(Value::Array(
             input
                 .entities

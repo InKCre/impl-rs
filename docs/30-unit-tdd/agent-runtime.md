@@ -10,6 +10,6 @@
 
 HTTP 提供 Agent CRUD 与本机 Tool metadata/schema 发现。Agent 的执行由拥有业务输入和副作用的 Organization、Sink 或嵌入调用者驱动。
 
-`register_builtin_tools` 注册 retrieve、get_entities、resolver、find_path 与 get_entity_neighborhood、get_connected_components。检索按各自 owner 保留分支排名，传给模型的候选只包含实体引用。实体读取保持请求顺序和缺失 null，Resolver 工具按调用逐项返回结果与错误。图工具使用 bounded 读取并保留探索预算耗尽的结果。
+`register_builtin_tools` 注册 retrieve、get_entities、resolver、find_path 与 get_entity_neighborhood、get_connected_components。检索按各自 owner 保留分支排名，传给模型的候选只包含实体引用。实体读取保持请求顺序和缺失 null，Resolver 工具按调用逐项返回结果与错误。图工具使用 bounded 读取并保留探索预算耗尽的结果。find_path 调用 canonical 导航合同，缺失端点返回 not_found，hop 预算为 0–8。成功的检索、实体读取和 Resolver invoke 只发含 ID 与数量的运营事件，隐私与导出边界见 [可观测性运行时](observability-runtime.md)。
 
 连通分量按输入 seed 顺序去重，沿指定精确 Relation content 做无向遍历。全调用共享 Block 与 Relation 预算，结果同时返回已观察的 seed 分组、闭合 spanning proof、缺失 seed 和 truncated 标志。预算耗尽后尚未探索的有效 seed 保持单项分组，调用者以 truncated 判断分组是否完整。

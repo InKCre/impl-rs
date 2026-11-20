@@ -534,5 +534,14 @@ fn decode_hex(value: Option<&str>) -> Vec<u8> {
 }
 
 pub(crate) fn allowed(key: &str) -> bool {
-    METADATA.contains(&key) || matches!(key, "inkcre.ai.provider.id" | "inkcre.ai.dialect")
+    METADATA.contains(&key)
+        || matches!(
+            key,
+            "inkcre.ai.provider.id"
+                | "inkcre.ai.dialect"
+                | "inkcre.peer.outcome"
+                | "gen_ai.response.finish_reasons"
+                | "gen_ai.usage.cache_read.input_tokens"
+                | "gen_ai.usage.reasoning.output_tokens"
+        )
 }

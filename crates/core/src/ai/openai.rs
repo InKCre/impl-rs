@@ -468,16 +468,41 @@ impl Dialect for OpenAi {
 
 fn response_usage(bytes: &[u8], stream: bool) -> Usage {
     fn read(value: &Value) -> Usage {
-        let total = |name: &str| {
+        let usage = value.get("usage");
+        let number = |value: Option<&Value>| {
             value
-                .get("usage")
-                .and_then(|v| v.get(name))
                 .and_then(Value::as_u64)
                 .filter(|v| *v <= i64::MAX as u64)
         };
         Usage {
-            input_tokens: total("prompt_tokens"),
-            output_tokens: total("completion_tokens"),
+            input_tokens: number(usage.and_then(|v| v.get("prompt_tokens"))),
+            output_tokens: number(usage.and_then(|v| v.get("completion_tokens"))),
+            cache_read_input_tokens: number(
+                usage
+                    .and_then(|v| v.get("prompt_tokens_details"))
+                    .and_then(|v| v.get("cached_tokens")),
+            ),
+            reasoning_output_tokens: number(
+                usage
+                    .and_then(|v| v.get("completion_tokens_details"))
+                    .and_then(|v| v.get("reasoning_tokens")),
+            ),
+            finish_reasons: value
+                .get("choices")
+                .and_then(Value::as_array)
+                .map(|choices| {
+                    choices
+                        .iter()
+                        .take(16)
+                        .map(|c| {
+                            c.get("finish_reason")
+                                .and_then(Value::as_str)
+                                .unwrap_or("other")
+                                .to_owned()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
     if !stream {
@@ -496,10 +521,25 @@ fn response_usage(bytes: &[u8], stream: bool) -> Usage {
         } else if line.is_empty() && !data.is_empty() {
             let event = data.join("\n");
             data.clear();
-            if let Ok(value) = serde_json::from_str::<Value>(&event)
-                && value.get("usage").is_some_and(Value::is_object)
-            {
-                usage = read(&value);
+            if let Ok(value) = serde_json::from_str::<Value>(&event) {
+                if value.get("usage").is_some_and(Value::is_object) {
+                    let next = read(&value);
+                    usage.input_tokens = next.input_tokens;
+                    usage.output_tokens = next.output_tokens;
+                    usage.cache_read_input_tokens = next.cache_read_input_tokens;
+                    usage.reasoning_output_tokens = next.reasoning_output_tokens;
+                }
+                // Match the adapter's first-choice aggregation; terminal usage-only
+                // chunks replace totals without erasing the known finish reason.
+                if let Some(reason) = value
+                    .get("choices")
+                    .and_then(Value::as_array)
+                    .and_then(|v| v.first())
+                    .and_then(|v| v.get("finish_reason"))
+                    .filter(|v| !v.is_null())
+                {
+                    usage.finish_reasons = vec![reason.as_str().unwrap_or("other").to_owned()];
+                }
             }
         }
     }

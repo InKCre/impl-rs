@@ -80,7 +80,7 @@ impl Tool for GraphTool {
             }
             let result = self
                 .core
-                .find_path(
+                .find_path_canonical(
                     p.from_block_id,
                     p.to_block_id,
                     PathOptions {
