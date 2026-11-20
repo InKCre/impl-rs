@@ -160,6 +160,20 @@ enum Action {
     Models {
         id: Option<String>,
     },
+    Methods {
+        target: String,
+        #[arg(long)]
+        limit: Option<u32>,
+        #[arg(long)]
+        cursor: Option<String>,
+    },
+    Invoke {
+        reference: String,
+        #[arg(long, required = true)]
+        method: String,
+        #[command(flatten)]
+        input: Input,
+    },
     Replace {
         id: String,
         #[arg(long)]
@@ -246,6 +260,11 @@ enum ConfigAction {
 }
 #[derive(Subcommand)]
 enum Graph {
+    Components {
+        seeds: Vec<i32>,
+        #[command(flatten)]
+        input: Input,
+    },
     Submit {
         #[command(flatten)]
         input: Input,
@@ -344,6 +363,9 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
         }
         Command::Update { reference, input } => {
             let (kind, id) = entity(&reference)?;
+            if input.schema {
+                return client.schema("PATCH", &format!("/{kind}s/{id}")).await;
+            }
             client
                 .send("PATCH", &format!("/{kind}s/{id}"), Some(input.read()?), &[])
                 .await
@@ -384,6 +406,19 @@ async fn run(cli: Cli) -> Result<Value, Failure> {
             Ok(json!(results))
         }
         Command::Graph { command } => match command {
+            Graph::Components { seeds, input } => {
+                if input.schema {
+                    return client.schema("POST", "/graph/components").await;
+                }
+                let mut body = input.read()?;
+                body.as_object_mut()
+                    .ok_or_else(|| Failure::usage("连通分量输入必须为对象"))?
+                    .insert("seed_block_ids".into(), json!(seeds));
+                client
+                    .send("POST", "/graph/components", Some(body), &[])
+                    .await
+            }
+
             Graph::Submit { input } => {
                 if input.schema {
                     return client.schema("POST", "/graph").await;

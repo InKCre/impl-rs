@@ -303,7 +303,13 @@ impl Core {
                 None => None,
             };
             let other_label = match neighbor {
-                Some(id) => knowledge.label(id, false).await.ok(),
+                Some(id) => match knowledge.label(id, false).await {
+                    Ok(label) => Some(label),
+                    Err(KnowledgeError::UnknownResolver(_) | KnowledgeError::Unsupported(_)) => {
+                        None
+                    }
+                    Err(error) => return Err(error.into()),
+                },
                 None => None,
             };
             context.push(json!({"id":edge.id,"direction":if edge.from_==Some(seed){"outgoing"}else{"incoming"},"content":edge.content,"other_block":{"id":neighbor,"resolver":other.map(|block|block.resolver),"label":other_label}}));

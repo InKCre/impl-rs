@@ -59,6 +59,16 @@ HTTP 请求默认有 30 秒预算，业务请求体上限为 8 MiB。Source/Job 
 
 构建并整理当前平台的安装目录时，运行 `cargo build --release --locked --workspace --bins`，然后运行 `python3 scripts/package_runtime.py .runtime/staged`。目录包含 HTTP app、`inkcre-cli`、扩展可执行文件及对应 manifest。`source.json` 记录打包时的源码和 SDK checkout。部署者将所需扩展 manifest 路径加入启动配置。
 
+Rust 分发发布者从同一份干净 checkout 构建各目标并分别保留安装目录。`scripts/publish_extension.py` 读取其中的 manifest、摘要和源码记录，默认只做本机预检。确认目标 Registry 后使用 `--execute`，脚本按同一 Release 准备、上传各目标、校验服务端摘要并提交发布，凭据只通过 `INKCRE_REGISTRY_TOKEN` 传入。例如在 preview 中发布单一目标：
+
+```sh
+python3 scripts/publish_extension.py inkcre/learn-english --nickname 'Learn English' \
+  --registry https://preview-registry.example \
+  --package aarch64-apple-darwin=.runtime/staged --execute
+```
+
+多个平台时重复 `--package TARGET=DIR`。构建目标由发布者明确指定。每个平台目录应在对应目标成功构建后生成，所有目录使用同一 Release、源码和 SDK 提交。
+
 enable 保存意图后启动插件，initialize 获得该精确分发的 config schema 和 typed capability descriptor，start 完成后注册本机 Resolver、Storage、Source 或 Job adapter，并复核选择。共享 catalog 中有类型不代表当前 Peer 已加载 handler。配置更新使用当前 Peer 精确 schema，不合并其他分发 schema；运行实例通过停用再启用读取新配置。disable 撤回 adapter、取消在途调用并停止实际子进程；数据库失败时本机停用状态保留，通过 `locally_disabled` 区分尚未同步的共享 enabled。周期 reconcile 处理其他 Peer 修改的启用、移除或版本选择。
 
 原生 executable 是可信代码，进程隔离承担生命周期管理。宿主以 `INKCRE_DATABASE_URL` 向受信插件提供 native 数据库能力；凭据不保存到 manifest 或共享扩展 config。SDK 每帧上限为 1 MiB。

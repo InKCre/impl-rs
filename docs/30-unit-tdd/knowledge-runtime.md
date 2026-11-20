@@ -16,6 +16,8 @@
 
 `ResolverContext` 代表一次 Block 行快照，并持有本实例的 actual、solved 和直接 Relation 缓存。需要观察 Block 行的新 resolver/content/storage 时，创建新的 reader。`refresh` 重新读取当前 pointer 后的字节或当前 Relations，并替换相应本地缓存；它不授予 AI、重新采集或覆盖已有派生内容的权限。`materialize_missing` 单独表达允许填补缺失派生信息。内建文本解码器没有 materialization 副作用。
 
+`solved_value` 和 `invoke_value` 提供 `ReadValue`，由 Resolver 明确返回 JSON 或具体字节。一个对象可同时包含普通 JSON 和嵌套字节。HTTP 使用 JSON Pointer 对应 multipart 部件，MCP 使用该位置对应的 live blob URI。原有 `solved` 和 `invoke` 继续提供 JSON 投影。
+
 ## 注册与扩展适配
 
 `Resolver` 和 `StorageHandler` 是可注册的 async traits，handler 不捕获所属 Core。执行所需的 Core、Block 和关系上下文由每次调用传入。`Registry` 以 exact contract ID 选择 handler，同一 Arc 的重复注册幂等，不同 handler 抢占同一 ID 明确失败。
@@ -28,11 +30,13 @@ typed read 方法拥有名称、说明和 JSON input schema。公共方法包括
 
 ## 内建能力
 
-本阶段内建语义 Resolvers 为 `core.text.v1`、`core.markdown.v1`、`core.html.v1` 和 `core.file.v1`，并可读取 `core.source.v1` 的 Source anchor。text 与 Markdown 解算和文字投影保留源文；HTML solved 保留源文，文字投影保留段落、代码、表格单元和链接目标，不执行脚本或请求资源。通用 HTML 文字投影不是文章正文提取。
+`core.text.v1`、`core.markdown.v1`、`core.html.v1` 和 `core.file.v1` 提供文本与文件解释。`core.source.v1` 读取 Source anchor。text 与 Markdown 解算和文字投影保留源文。HTML solved 保留源文，文字投影保留段落、代码、表格单元和链接目标，不执行脚本或请求资源。
 
-`core.file.v1` 要求 storage-backed bytes，解算结果包含原始 bytes、byte size 和可选的字节签名 media type。普通文字投影明确不支持，lexical context 只返回文件的有界字节事实，label 为 `file`。字节签名检测是 Resolver-owned evidence，不会自动选择另一种 Resolver；没有 PDF、图像或音视频解码器时，Source 仍需明确决定是否按通用 file 保存。
+`core.file.v1` 要求 storage-backed bytes，解算结果包含原始 bytes、byte size 和可选的字节签名 media type。文件文字事实由 lexical context 提供，label 为 `file`。Source 按支持的 exact 类型选择 Resolver。
 
-字节文本有 Unicode BOM 时按 BOM 严格解码，否则要求 UTF-8。HTML 额外识别有界前缀中的 meta charset 声明；无法识别的编码或无效字节明确失败。HTML label 优先 title，再取标题元素。媒体容器类型没有因此自动实现；media-type helper 仅返回当前已安装的 exact Resolver，不猜测通用 file fallback。
+`core.image.v1` 读取图像类型、尺寸和可用帧数。`core.pdf.v1` 读取 PDF 元数据、文本层和加密事实。`core.zip.v1` 只访问中央目录，统计包括重名条目在内的压缩方法、大小和加密条目，无需解压普通文件。`core.epub.v1` 在内存中读取容器和 package 元数据，分别限制条目数和所需 XML 大小。ZIP 和 EPUB 的文字查询使用 lexical context。
+
+字节文本有 Unicode BOM 时按 BOM 严格解码，否则要求 UTF-8。HTML 额外识别有界前缀中的 meta charset 声明；无法识别的编码或无效字节明确失败。HTML label 优先 title，再取标题元素。media-type helper 查询当前已安装的 exact Resolver。
 
 `JsonResolver` 是供扩展 canonical JSON 合同复用的 codec。扩展仍须给出自己的 exact ID 和 input schema；本阶段没有新增 `core.json.v1`。新输入按 schema 校验，普通解算只恢复 JSON 表示。具有图关联、文本和 label 语义的扩展应实现自己的 Resolver，而不是让通用 codec 推断业务含义。
 

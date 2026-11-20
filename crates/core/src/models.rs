@@ -14,7 +14,7 @@ pub struct Block {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockInput {
     #[serde(default)]
@@ -24,7 +24,7 @@ pub struct BlockInput {
 }
 
 /// An omitted field is unchanged; explicit null clears only `storage`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockPatch {
     #[serde(
@@ -68,7 +68,7 @@ pub struct Relation {
     pub updated_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelationInput {
     pub from_: i32,
@@ -76,7 +76,7 @@ pub struct RelationInput {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RelationPatch {
     #[serde(
@@ -188,12 +188,13 @@ pub struct Job {
     pub submission_tracestate: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JobInput {
     #[serde(rename = "type")]
     pub type_: String,
     #[serde(default = "empty_object")]
+    #[schemars(with = "serde_json::Map<String, Value>")]
     pub parameters: Value,
     pub timeout_seconds: Option<i32>,
     pub submission_traceparent: Option<String>,
@@ -254,7 +255,9 @@ pub struct GraphModel {
     pub relations: Vec<Relation>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    schemars::JsonSchema, Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Direction {
     In,

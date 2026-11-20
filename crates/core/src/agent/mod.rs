@@ -21,7 +21,7 @@ use std::{
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
     pub name: String,
@@ -30,6 +30,7 @@ pub struct Form {
     #[serde(default)]
     pub tools: Vec<String>,
     pub tool_choice: Option<ToolChoice>,
+    #[schemars(range(min = 1))]
     pub max_model_calls_per_turn: i32,
 }
 impl Form {
@@ -134,12 +135,35 @@ pub enum ToolFailure {
 #[async_trait]
 pub trait Tool: Send + Sync {
     fn definition(&self) -> FunctionTool;
+    /// Bind current capability schemas and handler state for one Thread snapshot.
+    fn snapshot(&self) -> Option<Arc<dyn Tool>> {
+        None
+    }
     async fn invoke(&self, input: Value) -> std::result::Result<Value, ToolFailure>;
 }
 #[derive(Clone)]
 struct BoundTool {
     definition: FunctionTool,
     handler: Arc<dyn Tool>,
+}
+impl BoundTool {
+    fn snapshot(&self) -> Result<Self> {
+        let Some(handler) = self.handler.snapshot() else {
+            return Ok(self.clone());
+        };
+        let definition = handler.definition();
+        if definition.id != self.definition.id {
+            return Err(Error::InvalidInput(
+                "bound Agent tool changed its ID".into(),
+            ));
+        }
+        jsonschema::validator_for(&Value::Object(definition.input_schema.clone()))
+            .map_err(|_| Error::InvalidInput("invalid bound Agent tool schema".into()))?;
+        Ok(Self {
+            definition,
+            handler,
+        })
+    }
 }
 #[derive(Clone)]
 pub struct Runtime {
@@ -180,8 +204,9 @@ impl Runtime {
     pub fn tool(&self, id: &str) -> Result<FunctionTool> {
         self.tools
             .get(id)
-            .map(|t| t.definition.clone())
-            .ok_or(Error::NotFound("Agent tool"))
+            .ok_or(Error::NotFound("Agent tool"))?
+            .snapshot()
+            .map(|tool| tool.definition)
     }
     pub fn tools(&self) -> Vec<FunctionTool> {
         self.tools.values().map(|t| t.definition.clone()).collect()
@@ -222,8 +247,8 @@ impl Runtime {
             .map(|id| {
                 self.tools
                     .get(id)
-                    .cloned()
-                    .ok_or(Error::NotFound("Agent tool"))
+                    .ok_or(Error::NotFound("Agent tool"))?
+                    .snapshot()
             })
             .collect::<Result<Vec<_>>>()?;
         let snapshot = ThreadState {

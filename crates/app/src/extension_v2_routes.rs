@@ -111,16 +111,16 @@ struct Routing {
     route_to_peer: Option<Uuid>,
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Selection {
+pub(crate) struct Selection {
     distribution: String,
     version: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-enum Command {
+pub(crate) enum Command {
     Select {
         extension: String,
         distribution: String,

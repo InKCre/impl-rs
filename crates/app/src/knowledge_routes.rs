@@ -19,8 +19,14 @@ use crate::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/resolvers", get(resolvers))
-        .route("/resolvers/{resolver}/methods", get(resolver_methods))
+        .route(
+            "/blocks/{id}/resolver/methods",
+            get(canonical_block_methods),
+        )
+        .route(
+            "/blocks/{id}/resolver/methods/{method}",
+            post(canonical_invoke),
+        )
         .route("/blocks/{id}/read-methods", get(block_methods))
         .route("/blocks/{id}/solved", get(solved))
         .route("/blocks/{id}/text", get(text))
@@ -37,6 +43,129 @@ pub fn router() -> Router<AppState> {
                 .put(update_object)
                 .delete(delete_object),
         )
+}
+
+pub fn discovery(legacy: bool) -> Router<AppState> {
+    if legacy {
+        Router::new()
+            .route("/resolvers", get(resolvers))
+            .route("/resolvers/{resolver}/methods", get(resolver_methods))
+    } else {
+        Router::new()
+            .route("/resolvers", get(canonical_resolvers))
+            .route(
+                "/resolvers/{resolver}/methods",
+                get(canonical_resolver_methods),
+            )
+    }
+}
+
+#[derive(Deserialize)]
+struct ResolverPage {
+    limit: Option<usize>,
+    cursor: Option<String>,
+}
+
+fn page_entries<T>(
+    mut values: Vec<T>,
+    page: ResolverPage,
+    key: impl Fn(&T) -> &str,
+) -> ApiResult<(Vec<T>, Option<String>)> {
+    if page.limit == Some(0) {
+        return Err(ApiError::invalid("limit must be positive"));
+    }
+    values.retain(|item| {
+        page.cursor
+            .as_deref()
+            .is_none_or(|cursor| key(item) > cursor)
+    });
+    values.sort_by(|left, right| key(left).cmp(key(right)));
+    let cursor = if let Some(limit) = page.limit.filter(|limit| values.len() > *limit) {
+        values.truncate(limit);
+        values.last().map(|value| key(value).to_owned())
+    } else {
+        None
+    };
+    Ok((values, cursor))
+}
+
+async fn canonical_resolvers(
+    State(state): State<AppState>,
+    ApiQuery(page): ApiQuery<ResolverPage>,
+) -> ApiResult<Json<Value>> {
+    let values = state.core.knowledge().registry().resolvers()?;
+    let (values, cursor) = page_entries(values, page, |value| &value.id)?;
+    let rows: Vec<_> = values
+        .into_iter()
+        .map(|value| json!({"id":value.id,"description":value.description}))
+        .collect();
+    Ok(Json(json!({"resolvers":rows,"next_cursor":cursor})))
+}
+
+async fn canonical_resolver_methods(
+    State(state): State<AppState>,
+    ApiPath(resolver): ApiPath<String>,
+    ApiQuery(page): ApiQuery<ResolverPage>,
+) -> ApiResult<Json<Value>> {
+    canonical_methods(&state, &resolver, page)
+}
+
+async fn canonical_block_methods(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<i32>,
+    ApiQuery(page): ApiQuery<ResolverPage>,
+) -> ApiResult<Json<Value>> {
+    let reader = state.core.knowledge().reader(id).await?;
+    canonical_methods(&state, &reader.block.resolver, page)
+}
+
+fn canonical_methods(
+    state: &AppState,
+    resolver: &str,
+    page: ResolverPage,
+) -> ApiResult<Json<Value>> {
+    let methods = state
+        .core
+        .knowledge()
+        .read_methods(resolver)
+        .map_err(canonical_error)?;
+    let (methods, cursor) = page_entries(methods, page, |method| &method.name)?;
+    Ok(Json(
+        json!({"resolver":resolver,"methods":methods,"next_cursor":cursor}),
+    ))
+}
+
+async fn canonical_invoke(
+    State(state): State<AppState>,
+    ApiPath((id, method)): ApiPath<(i32, String)>,
+    ApiBytes(bytes): ApiBytes,
+) -> ApiResult<Response> {
+    let arguments = if bytes.is_empty() {
+        json!({})
+    } else {
+        serde_json::from_slice(&bytes)
+            .map_err(|_| ApiError::invalid("method arguments must be a JSON object"))?
+    };
+    let value = state
+        .core
+        .knowledge()
+        .invoke_value(id, &method, arguments)
+        .await
+        .map_err(canonical_error)?;
+    crate::content::response(value)
+}
+
+fn canonical_error(error: inkcre_core::knowledge::Error) -> ApiError {
+    use inkcre_core::knowledge::Error;
+    match error {
+        Error::UnknownResolver(_) => ApiError::not_found("Resolver is unavailable"),
+        Error::Unsupported(_) => ApiError::new(
+            StatusCode::CONFLICT,
+            "unsupported",
+            "Resolver capability is unavailable",
+        ),
+        _ => error.into(),
+    }
 }
 
 async fn resolvers(State(state): State<AppState>) -> ApiResult<Json<Vec<ResolverDescriptor>>> {
@@ -108,9 +237,9 @@ async fn invoke(
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DraftInput {
+pub(crate) struct DraftInput {
     resolver: String,
     input: Value,
 }
@@ -142,13 +271,14 @@ async fn storage_types(State(state): State<AppState>) -> ApiResult<Json<Vec<Stor
     Ok(Json(state.core.knowledge().registry().storages()?))
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct StorageInput {
+pub(crate) struct StorageInput {
     #[serde(rename = "type")]
     type_: String,
     nickname: Option<String>,
     #[serde(default = "inkcre_core::models::empty_object")]
+    #[schemars(with = "serde_json::Map<String, Value>")]
     config: Value,
 }
 

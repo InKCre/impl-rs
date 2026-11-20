@@ -33,6 +33,7 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub core: Core,
+    pub observations: Arc<inkcre_core::observability::Runtime>,
     pub source_registry: inkcre_core::source::SourceRegistry,
     pub agents: inkcre_core::agent::Runtime,
     pub configs: inkcre_core::deployment_config::ConfigRegistry,
@@ -85,6 +86,7 @@ pub fn router(state: AppState) -> Router {
         .route("/peers/{id}", get(peer_get).delete(peer_delete))
         .merge(crate::agent_routes::router())
         .merge(crate::ai_routes::router())
+        .merge(crate::observation_routes::router())
         .merge(crate::component_routes::router())
         .merge(crate::config_routes::router())
         .merge(crate::entity_routes::router())
@@ -99,6 +101,7 @@ pub fn router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     let mcp = crate::mcp::router();
     let canonical = crate::extension_v2_routes::router()
+        .merge(crate::knowledge_routes::discovery(false))
         .merge(crate::source_routes::commands(false))
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     let legacy = Router::new()
@@ -117,8 +120,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::delete(extension_unselect),
         )
         .merge(crate::source_routes::commands(true))
+        .merge(crate::knowledge_routes::discovery(true))
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
+        .route("/openapi.json", get(crate::openapi::document))
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
         .route("/livez", get(live))
@@ -656,12 +661,14 @@ struct PathQuery {
     max_explored_blocks: u32,
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PathInput {
+pub(crate) struct PathInput {
     #[serde(alias = "from_block_id")]
+    #[schemars(rename = "from_block_id")]
     source: i32,
     #[serde(alias = "to_block_id")]
+    #[schemars(rename = "to_block_id")]
     target: i32,
     #[serde(default = "default_direction")]
     direction: inkcre_core::Direction,

@@ -1,0 +1,222 @@
+{
+  "GitHubAccount": {
+    "additionalProperties": false,
+    "description": "One canonical GitHub user or organization account.",
+    "properties": {
+      "node_id": {
+        "title": "Node Id",
+        "type": "string"
+      },
+      "database_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Database Id"
+      },
+      "kind": {
+        "enum": [
+          "user",
+          "organization"
+        ],
+        "title": "Kind",
+        "type": "string"
+      },
+      "login": {
+        "title": "Login",
+        "type": "string"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Name"
+      },
+      "url": {
+        "title": "Url",
+        "type": "string"
+      },
+      "avatar_url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Avatar Url"
+      }
+    },
+    "required": [
+      "node_id",
+      "kind",
+      "login",
+      "url"
+    ],
+    "title": "GitHubAccount",
+    "type": "object"
+  },
+  "GitHubRepository": {
+    "additionalProperties": false,
+    "description": "Stable Repository identity and useful source-authored metadata.",
+    "properties": {
+      "node_id": {
+        "title": "Node Id",
+        "type": "string"
+      },
+      "database_id": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Database Id"
+      },
+      "name_with_owner": {
+        "title": "Name With Owner",
+        "type": "string"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "url": {
+        "title": "Url",
+        "type": "string"
+      },
+      "homepage_url": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Homepage Url"
+      },
+      "primary_language": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Primary Language"
+      },
+      "topics": {
+        "default": [],
+        "items": {
+          "type": "string"
+        },
+        "title": "Topics",
+        "type": "array"
+      },
+      "is_private": {
+        "title": "Is Private",
+        "type": "boolean"
+      },
+      "is_archived": {
+        "title": "Is Archived",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "node_id",
+      "name_with_owner",
+      "url",
+      "is_private",
+      "is_archived"
+    ],
+    "title": "GitHubRepository",
+    "type": "object"
+  },
+  "GitHubList": {
+    "additionalProperties": false,
+    "description": "One GitHub List independent of its current membership.",
+    "properties": {
+      "node_id": {
+        "title": "Node Id",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "description": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Description"
+      },
+      "slug": {
+        "title": "Slug",
+        "type": "string"
+      },
+      "is_private": {
+        "title": "Is Private",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "node_id",
+      "name",
+      "slug",
+      "is_private"
+    ],
+    "title": "GitHubList",
+    "type": "object"
+  },
+  "GitHubSourceConfig": {
+    "additionalProperties": false,
+    "description": "Credentials for one GitHub access context.",
+    "properties": {
+      "github_token": {
+        "format": "password",
+        "minLength": 1,
+        "title": "GitHub token",
+        "type": "string"
+      }
+    },
+    "required": [
+      "github_token"
+    ],
+    "title": "GitHubSourceConfig",
+    "type": "object"
+  }
+}

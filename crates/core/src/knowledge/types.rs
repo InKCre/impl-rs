@@ -1,4 +1,4 @@
-use super::{Error, GraphDraft, ResolverContext, Result};
+use super::{Error, GraphDraft, ReadValue, ResolverContext, Result};
 use crate::{BlockInput, HydratedContent, Storage};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -90,6 +90,13 @@ pub trait Resolver: Send + Sync {
         Ok(())
     }
     async fn solve(&self, context: &ResolverContext, options: ReadOptions) -> Result<Value>;
+    async fn solve_value(
+        &self,
+        context: &ResolverContext,
+        options: ReadOptions,
+    ) -> Result<ReadValue> {
+        self.solve(context, options).await.map(ReadValue::Json)
+    }
     async fn text(
         &self,
         _context: &ResolverContext,
@@ -107,6 +114,16 @@ pub trait Resolver: Send + Sync {
         _arguments: Value,
     ) -> Result<Value> {
         Err(Error::UnknownMethod(method.into()))
+    }
+    async fn invoke_value(
+        &self,
+        context: &ResolverContext,
+        method: &str,
+        arguments: Value,
+    ) -> Result<ReadValue> {
+        self.invoke(context, method, arguments)
+            .await
+            .map(ReadValue::Json)
     }
     async fn draft(&self, _core: &crate::Core, _input: Value) -> Result<GraphDraft> {
         Err(Error::Unsupported("Resolver graph drafting".into()))

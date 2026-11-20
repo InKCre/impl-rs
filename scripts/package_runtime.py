@@ -58,6 +58,7 @@ def package(build_dir, output):
         (stage / "source.json").write_text(json.dumps({
             "workspace_checkout": command("git", "rev-parse", "HEAD").strip(),
             "extension_sdk_checkout": command("git", "-C", "vendor/ext-reg", "rev-parse", "HEAD").strip(),
+            "workspace_dirty": bool(command("git", "status", "--porcelain").strip()),
             "version": command(app, "--version").strip(),
         }, indent=2) + "\n", encoding="utf-8")
         stage.rename(output)

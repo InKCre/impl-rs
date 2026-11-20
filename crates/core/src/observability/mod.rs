@@ -1,0 +1,280 @@
+//! Bounded recording and querying of the deployment-selected observation backend.
+mod postgresql;
+mod types;
+use crate::Core;
+use serde_json::{Value, json};
+use std::sync::{
+    Arc, Mutex as SyncMutex,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
+use tokio::{
+    sync::{Mutex, Semaphore, mpsc, watch},
+    task::JoinHandle,
+    time::{Duration, timeout},
+};
+pub use types::*;
+use uuid::Uuid;
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("invalid observability request")]
+    Invalid,
+    #[error("selected observability backend is unavailable")]
+    Unavailable,
+}
+pub type Result<T> = std::result::Result<T, Error>;
+struct Counters {
+    dropped: AtomicU64,
+    pending: AtomicU64,
+    error: SyncMutex<Option<String>>,
+}
+impl Counters {
+    fn error(&self, message: &str) {
+        *self.error.lock().unwrap_or_else(|p| p.into_inner()) = Some(message.into())
+    }
+}
+pub struct Runtime {
+    core: Core,
+    peer_id: Uuid,
+    selected: String,
+    configured: bool,
+    accepting: AtomicBool,
+    closed: AtomicBool,
+    gate: SyncMutex<()>,
+    counts: Arc<Counters>,
+    sender: mpsc::Sender<Record>,
+    stop: watch::Sender<bool>,
+    writer: Mutex<Option<JoinHandle<()>>>,
+    queries: Arc<Semaphore>,
+    pub requests: Arc<Semaphore>,
+}
+impl Runtime {
+    pub async fn start(core: Core, peer_id: Uuid) -> Arc<Self> {
+        let selected = timeout(
+            Duration::from_secs(5),
+            sqlx::query_as::<_, (String, Value)>(
+                "SELECT schema,value FROM inkcre.configs WHERE key='inkcre.observability.backend'",
+            )
+            .fetch_optional(core.pool()),
+        )
+        .await;
+        let (selected, configured, error) = match selected {
+            Ok(Ok(None)) => ("postgresql".to_string(), true, None),
+            Ok(Ok(Some((schema, value)))) => {
+                let valid = schema == "inkcre.observability.backend.v1"
+                    && value
+                        .as_object()
+                        .is_some_and(|o| o.keys().all(|k| k == "backend"));
+                let backend = value
+                    .get("backend")
+                    .and_then(Value::as_str)
+                    .unwrap_or("postgresql");
+                if !valid
+                    || !matches!(backend, "postgresql" | "loki")
+                    || value
+                        .get("backend")
+                        .is_some_and(|v| !matches!(v.as_str(), Some("postgresql" | "loki")))
+                {
+                    (
+                        "postgresql".into(),
+                        false,
+                        Some("Observability configuration is invalid".into()),
+                    )
+                } else if backend == "loki" {
+                    (
+                        "loki".into(),
+                        false,
+                        Some("Selected Loki backend has no local connection".into()),
+                    )
+                } else {
+                    ("postgresql".into(), true, None)
+                }
+            }
+            _ => (
+                "postgresql".into(),
+                false,
+                Some("Observability configuration could not be read".into()),
+            ),
+        };
+        let (sender, mut receiver) = mpsc::channel::<Record>(1024);
+        let (stop, mut stopped) = watch::channel(false);
+        let counts = Arc::new(Counters {
+            dropped: AtomicU64::new(0),
+            pending: AtomicU64::new(0),
+            error: SyncMutex::new(error),
+        });
+        let runtime = Arc::new(Self {
+            core: core.clone(),
+            peer_id,
+            selected,
+            configured,
+            accepting: AtomicBool::new(configured),
+            closed: AtomicBool::new(false),
+            gate: SyncMutex::new(()),
+            counts: counts.clone(),
+            sender,
+            stop,
+            writer: Mutex::new(None),
+            queries: Arc::new(Semaphore::new(4)),
+            requests: Arc::new(Semaphore::new(4)),
+        });
+        if configured {
+            let task = tokio::spawn(async move {
+                loop {
+                    let first = tokio::select! {biased;_=stopped.changed()=>{receiver.close();receiver.recv().await},item=receiver.recv()=>item};
+                    let Some(first) = first else { break };
+                    let mut records = vec![first];
+                    while records.len() < 100 {
+                        match receiver.try_recv() {
+                            Ok(record) => records.push(record),
+                            Err(_) => break,
+                        }
+                    }
+                    let count = records.len() as u64;
+                    if !matches!(
+                        timeout(Duration::from_secs(5), postgresql::write(&core, records)).await,
+                        Ok(Ok(()))
+                    ) {
+                        counts.dropped.fetch_add(count, Ordering::Relaxed);
+                        counts.error("Selected backend write failed; records were dropped");
+                    }
+                    counts.pending.fetch_sub(count, Ordering::Relaxed);
+                }
+            });
+            *runtime.writer.lock().await = Some(task);
+        }
+        runtime.core.bind_observability(&runtime);
+        runtime
+    }
+    pub fn status(&self) -> Status {
+        Status {
+            backend: self.selected.clone(),
+            configured: self.configured,
+            recording: self.accepting.load(Ordering::Acquire),
+            queryable: self.configured && !self.closed.load(Ordering::Acquire),
+            scope: "selected_backend",
+            history: "Only the selected backend is queried; prior backend data remains there.",
+            dropped: self.counts.dropped.load(Ordering::Relaxed),
+            error: self
+                .counts
+                .error
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
+        }
+    }
+    pub fn emit(&self, mut record: Record) -> bool {
+        if record.validate().is_err() {
+            self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+            self.counts
+                .error("Invalid observation metadata was dropped");
+            return false;
+        }
+        if !record.attributes.contains_key("inkcre.peer.id") && record.attributes.len() == 64 {
+            self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+            self.counts
+                .error("No metadata capacity for the recording Peer identity");
+            return false;
+        }
+        record
+            .attributes
+            .entry("inkcre.peer.id".to_owned())
+            .or_insert(json!(self.peer_id));
+        let _gate = self.gate.lock().unwrap_or_else(|p| p.into_inner());
+        if !self.accepting.load(Ordering::Acquire) {
+            self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        self.counts.pending.fetch_add(1, Ordering::Relaxed);
+        if self.sender.try_send(record).is_err() {
+            self.counts.pending.fetch_sub(1, Ordering::Relaxed);
+            self.counts.dropped.fetch_add(1, Ordering::Relaxed);
+            self.counts
+                .error("Recording queue full; records were dropped");
+            return false;
+        }
+        true
+    }
+    pub async fn query(&self, query: Query) -> Result<Page> {
+        query.validate()?;
+        if !self.configured || self.closed.load(Ordering::Acquire) {
+            return Err(Error::Unavailable);
+        }
+        let _permit = self
+            .queries
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Error::Unavailable)?;
+        match timeout(
+            Duration::from_secs(10),
+            postgresql::query(&self.core, query),
+        )
+        .await
+        {
+            Ok(Ok(page)) => Ok(page),
+            _ => {
+                self.counts.error("Selected backend query failed");
+                Err(Error::Unavailable)
+            }
+        }
+    }
+    pub async fn shutdown(&self) {
+        {
+            let _gate = self.gate.lock().unwrap_or_else(|p| p.into_inner());
+            if self.closed.swap(true, Ordering::AcqRel) {
+                return;
+            }
+            self.accepting.store(false, Ordering::Release);
+        }
+        let _ = self.stop.send(true);
+        if let Some(mut task) = self.writer.lock().await.take()
+            && timeout(Duration::from_secs(5), &mut task).await.is_err()
+        {
+            task.abort();
+            let _ = task.await;
+            self.counts
+                .error("Recording drain timed out; pending records were dropped");
+        }
+        let pending = self.counts.pending.swap(0, Ordering::Relaxed);
+        self.counts.dropped.fetch_add(pending, Ordering::Relaxed);
+    }
+}
+impl Core {
+    pub fn bind_observability(&self, runtime: &Arc<Runtime>) {
+        *self.observation.write().unwrap_or_else(|p| p.into_inner()) =
+            Some(Arc::downgrade(runtime));
+    }
+    pub fn record_event(&self, name: &str, attributes: serde_json::Map<String, Value>) {
+        let runtime = self
+            .observation
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade);
+        if let Some(runtime) = runtime {
+            let mut event = Record::event(name, attributes);
+            if event
+                .attributes
+                .get("inkcre.job.status")
+                .and_then(Value::as_str)
+                .is_some_and(|status| matches!(status, "failed" | "timed_out"))
+            {
+                event.severity_number = 17;
+                event.severity_text = "ERROR".into();
+            }
+            runtime.emit(event);
+        }
+    }
+}
+
+pub fn register_config(
+    registry: &mut crate::deployment_config::ConfigRegistry,
+) -> crate::deployment_config::Result<()> {
+    use crate::deployment_config::{Error, SchemaDescriptor};
+    registry.register(SchemaDescriptor{id:"inkcre.observability.backend.v1".into(),keys:vec!["inkcre.observability.backend".into()],description:"Select the shared recording and querying backend.".into(),input_schema:Some(json!({"type":"object","additionalProperties":false,"properties":{"backend":{"enum":["postgresql","loki"],"default":"postgresql"}}}))},|mut value|{
+  let object=value.as_object_mut().ok_or(Error::Invalid("value must be an object"))?;
+  if object.keys().any(|key|key!="backend"){return Err(Error::Invalid("unknown backend configuration property"))}
+  let backend=object.entry("backend").or_insert(json!("postgresql"));
+  if !matches!(backend.as_str(),Some("postgresql"|"loki")){return Err(Error::Invalid("unknown observation backend"))}
+  Ok(value)
+ })
+}

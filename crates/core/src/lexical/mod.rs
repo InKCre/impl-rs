@@ -14,7 +14,7 @@ use unicode_casefold::UnicodeCaseFold;
 pub const CAPABILITY: &str = "core.feature_retrieval.lexical.v1";
 pub const MAINTAIN_JOB: &str = "core.feature_retrieval.lexical.maintain.v1";
 pub const REBUILD_JOB: &str = "core.feature_retrieval.lexical.rebuild.v1";
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Equality<T> {
     pub eq: T,
@@ -24,7 +24,7 @@ fn predicate<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
 ) -> std::result::Result<Option<T>, D::Error> {
     T::deserialize(d).map(Some)
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockFilters {
     #[serde(
@@ -40,11 +40,12 @@ pub struct BlockFilters {
     )]
     pub storage: Option<Equality<i32>>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LexicalRequest {
     pub query: String,
     #[serde(default = "default_limit")]
+    #[schemars(range(min = 1, max = 20))]
     pub limit: i64,
     pub filters: Option<BlockFilters>,
 }

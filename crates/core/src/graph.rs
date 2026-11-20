@@ -8,8 +8,9 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize)]
 pub struct DraftBlock {
+    #[schemars(range(max=-1))]
     pub id: i32,
     #[serde(flatten)]
     pub block: BlockInput,
@@ -41,7 +42,7 @@ impl<'de> Deserialize<'de> for DraftBlock {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DraftRelation {
     pub from_: i32,
@@ -49,7 +50,7 @@ pub struct DraftRelation {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphInput {
     #[serde(default)]

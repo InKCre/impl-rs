@@ -21,10 +21,11 @@ struct Pagination {
     limit: Option<i64>,
     cursor: Option<String>,
 }
-#[derive(Deserialize)]
-struct Replacement {
+#[derive(schemars::JsonSchema, Deserialize)]
+pub(crate) struct Replacement {
     #[serde(rename = "schema", alias = "schema_id")]
     schema_id: String,
+    #[schemars(with = "serde_json::Map<String, Value>")]
     value: Value,
 }
 fn error(error: Error) -> ApiError {

@@ -1,10 +1,12 @@
 //! Exact knowledge capabilities over persisted graph authority.
 //! Raw record reads remain available without a loaded Resolver or Storage handler.
 
+mod archive;
 mod builtins;
 mod draft;
 mod error;
 mod media;
+mod read_value;
 mod registry;
 mod storage;
 mod types;
@@ -16,6 +18,7 @@ pub use builtins::{
 };
 pub use draft::{GraphDraft, PersistedDraft};
 pub use error::{Error, Result};
+pub use read_value::ReadValue;
 pub use registry::Registry;
 pub use storage::{HttpStorage, HttpStorageConfig, PostgreSqlStorage};
 pub use types::*;
@@ -131,6 +134,9 @@ impl Knowledge {
     pub async fn solved(&self, id: i32, options: ReadOptions) -> Result<Value> {
         self.reader(id).await?.get_solved_content(options).await
     }
+    pub async fn solved_value(&self, id: i32, options: ReadOptions) -> Result<ReadValue> {
+        self.reader(id).await?.get_solved_value(options).await
+    }
     pub async fn text(&self, id: i32, options: TextOptions) -> Result<Option<String>> {
         self.reader(id).await?.get_text(options).await
     }
@@ -139,6 +145,9 @@ impl Knowledge {
     }
     pub async fn invoke(&self, id: i32, method: &str, arguments: Value) -> Result<Value> {
         self.reader(id).await?.invoke(method, arguments).await
+    }
+    pub async fn invoke_value(&self, id: i32, method: &str, arguments: Value) -> Result<ReadValue> {
+        self.reader(id).await?.invoke_value(method, arguments).await
     }
 
     /// Input admission requires the exact local contract; ordinary `Core::block_get` does not.
@@ -298,7 +307,7 @@ pub struct ResolverContext {
     pub block: Block,
     pub knowledge: Knowledge,
     actual: Mutex<Option<HydratedContent>>,
-    solved: Mutex<Option<Value>>,
+    solved: Mutex<Option<ReadValue>>,
     relations: Mutex<HashMap<(bool, bool), Vec<Relation>>>,
 }
 
@@ -335,6 +344,9 @@ impl ResolverContext {
         Ok(relations)
     }
     pub async fn get_solved_content(&self, options: ReadOptions) -> Result<Value> {
+        Ok(self.get_solved_value(options).await?.into_json())
+    }
+    pub async fn get_solved_value(&self, options: ReadOptions) -> Result<ReadValue> {
         let mut cache = self.solved.lock().await;
         if !options.refresh
             && let Some(value) = cache.as_ref()
@@ -342,7 +354,7 @@ impl ResolverContext {
             return Ok(value.clone());
         }
         let resolver = self.knowledge.registry.resolver(&self.block.resolver)?;
-        let value = resolver.solve(self, options).await?;
+        let value = resolver.solve_value(self, options).await?;
         *cache = Some(value.clone());
         Ok(value)
     }
@@ -376,6 +388,19 @@ impl ResolverContext {
             .transfer_url(&storage, &self.block.content)
     }
     pub async fn invoke(&self, method: &str, arguments: Value) -> Result<Value> {
+        let value = self.invoke_value(method, arguments).await?;
+        if method == "get_raw_content" {
+            let content = match value {
+                ReadValue::Json(Value::String(text)) => HydratedContent::Text(text),
+                ReadValue::Bytes(bytes) => HydratedContent::Bytes(bytes),
+                _ => unreachable!("raw content is text or bytes"),
+            };
+            return serde_json::to_value(content)
+                .map_err(|_| Error::InvalidInput("read result cannot be represented"));
+        }
+        Ok(value.into_json())
+    }
+    pub async fn invoke_value(&self, method: &str, arguments: Value) -> Result<ReadValue> {
         let contract = self
             .knowledge
             .read_methods(&self.block.resolver)?
@@ -406,44 +431,48 @@ impl ResolverContext {
         }
         let invalid =
             |_| Error::InvalidInput("read-method arguments do not match their typed contract");
-        let to_value = |value| {
-            serde_json::to_value(value)
-                .map_err(|_| Error::InvalidInput("read result cannot be represented"))
-        };
         match method {
             "get_raw_content" => {
                 let options: Refresh = serde_json::from_value(arguments).map_err(invalid)?;
-                to_value(self.actual_content(options.refresh).await?)
+                Ok(match self.actual_content(options.refresh).await? {
+                    HydratedContent::Text(text) => ReadValue::Json(Value::String(text)),
+                    HydratedContent::Bytes(bytes) => ReadValue::Bytes(bytes),
+                })
             }
             "get_solved_content" => {
-                self.get_solved_content(serde_json::from_value(arguments).map_err(invalid)?)
+                self.get_solved_value(serde_json::from_value(arguments).map_err(invalid)?)
                     .await
             }
-            "get_text" => Ok(self
-                .get_text(serde_json::from_value(arguments).map_err(invalid)?)
-                .await?
-                .map_or(Value::Null, Value::String)),
+            "get_text" => Ok(ReadValue::Json(
+                self.get_text(serde_json::from_value(arguments).map_err(invalid)?)
+                    .await?
+                    .map_or(Value::Null, Value::String),
+            )),
             "get_label" => {
                 let options: Refresh = serde_json::from_value(arguments).map_err(invalid)?;
-                Ok(Value::String(self.get_label(options.refresh).await?))
+                Ok(ReadValue::Json(Value::String(
+                    self.get_label(options.refresh).await?,
+                )))
             }
-            "get_transfer_url" => Ok(self
-                .transfer_url()
-                .await?
-                .map_or(Value::Null, Value::String)),
+            "get_transfer_url" => Ok(ReadValue::Json(
+                self.transfer_url()
+                    .await?
+                    .map_or(Value::Null, Value::String),
+            )),
             "get_relations" => {
                 let options: Relations = serde_json::from_value(arguments).map_err(invalid)?;
                 serde_json::to_value(
                     self.relations(options.include_in, options.include_out, options.refresh)
                         .await?,
                 )
+                .map(ReadValue::Json)
                 .map_err(|_| Error::InvalidInput("Relations cannot be represented"))
             }
             _ => {
                 self.knowledge
                     .registry
                     .resolver(&self.block.resolver)?
-                    .invoke(self, method, arguments)
+                    .invoke_value(self, method, arguments)
                     .await
             }
         }

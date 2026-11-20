@@ -39,8 +39,10 @@
 
 | 方法与路径 | 输入与结果 |
 | --- | --- |
-| `GET /resolvers` | 本机已加载的 Resolver descriptor 数组 |
-| `GET /resolvers/{resolver}/methods` | 该 exact Resolver 的公共及自定义只读方法与参数 schema |
+| `GET /resolvers?limit=…&cursor=…` | 本机已加载的 Resolver，返回 `{resolvers,next_cursor}` |
+| `GET /resolvers/{resolver}/methods` | 该 exact Resolver 的公共及自定义方法、参数 schema 和分页游标 |
+| `GET /blocks/{id}/resolver/methods` | 按 Block 的 exact Resolver 发现方法，支持相同分页 |
+| `POST /blocks/{id}/resolver/methods/{method}` | 参数对象缺省 `{}`。按结果类型返回 JSON、原始 bytes 或 `multipart/related` |
 | `GET /blocks/{id}/read-methods` | 根据 Block 当前 Resolver 查询方法，不解算内容 |
 | `GET /blocks/{id}/solved` | Resolver-owned JSON；支持 `refresh`、`materialize_missing` query |
 | `GET /blocks/{id}/text` | JSON string 或 null；另支持 `context=default/lexical` |
@@ -52,6 +54,8 @@
 读取参数缺省为 `refresh=false`、`materialize_missing=true`、`context=default`。`refresh` 刷新本次 reader 的内容或关系缓存，不要求重新采集或 AI 处理；`materialize_missing` 允许具体 Resolver 填补缺失派生信息，因此读取可能产生该能力声明的副作用。只查看已保存投影时使用 `?materialize_missing=false`。支持但没有文字结果返回 null；作者写入的空字符串返回 `""`；未知或不支持的能力明确报错。
 
 公共方法为 `get_raw_content`、`get_solved_content`、`get_text`、`get_label`、`get_relations` 和 `get_transfer_url`。通过 invoke 调用时 body 仍直接使用该方法的参数对象，例如 `{"materialize_missing":false}`；`get_raw_content` 返回带 `kind/content` 的 JSON 表示，而 `/content` 返回实际响应体。额外只读方法使用 `get_` 或 `read_` 前缀。
+
+`/api/v1` 的 Resolver 发现接口保留旧数组格式。旧 `/invoke/{method}` 和 `/solved` 保留 JSON 投影。新的 `/resolver/methods/{method}` 保留顶层或嵌套的二进制类型，multipart 采用与 `/entities/get` 相同的 JSON Pointer 约定。
 
 GraphDraft 形如 `{"root":-1,"blocks":[{"id":-1,"resolver":"core.text.v1","content":"资料"}],"relations":[]}`。新 Block ID 为命令局部负整数，Relation 可引用这些 ID 或既有正 ID；提交会校验全部新表示，在同一事务内映射 ID 并写图。每次最多 1000 个新 Block、5000 条 Relation。draft 本身不保存任何图数据，具体 Resolver 必须声明 drafting 能力。读取与事务细节见 [知识运行时](knowledge-runtime.md)。
 

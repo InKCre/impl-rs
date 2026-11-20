@@ -86,7 +86,7 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolChoiceMode {
     None,
@@ -94,13 +94,13 @@ pub enum ToolChoiceMode {
     Required,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NamedToolChoice {
     Function { tool: String },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum ToolChoice {
     Mode(ToolChoiceMode),

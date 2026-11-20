@@ -24,6 +24,7 @@ lopdf = { version = "0.38", default-features = false }
 reqwest.workspace = true
 scraper.workspace = true
 semver.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -33,6 +34,9 @@ tokio.workspace = true
 tracing.workspace = true
 unicode-casefold = "0.2"
 url.workspace = true
+roxmltree.workspace = true
+# ZipIterable preserves duplicate central-directory entries and has a pinned API.
+zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 uuid.workspace = true
 
 [lints]

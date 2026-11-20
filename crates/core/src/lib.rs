@@ -19,6 +19,7 @@ pub mod discovery;
 pub mod extension;
 pub mod graph_components;
 pub mod lexical;
+pub mod observability;
 pub mod organization;
 pub mod retrieval;
 pub mod semantic;
@@ -39,6 +40,7 @@ use std::{sync::Arc, time::Duration};
 pub struct Core {
     pool: PgPool,
     pub(crate) knowledge_registry: Arc<knowledge::Registry>,
+    pub(crate) observation: Arc<std::sync::RwLock<Option<std::sync::Weak<observability::Runtime>>>>,
 }
 
 impl Core {
@@ -65,6 +67,7 @@ impl Core {
         Self {
             pool,
             knowledge_registry: Arc::new(knowledge::Registry::default()),
+            observation: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 

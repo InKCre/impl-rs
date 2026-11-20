@@ -4,9 +4,9 @@
 
 传输提供 2025-11-25 的无状态 JSON 响应形式。POST 承载 JSON-RPC 请求，通知返回202，GET不建立 SSE 会话。工具发现提供 metadata、query、open/read、graph expansion/path、Resolver method discovery/invocation 八项能力。`resources/read` 使用稳定 Block 或 Resolver URI 重新读取当前资料，资源选择器失效会返回错误。
 
-metadata 与条件查询使用 Core 的列白名单、ID升序和一项lookahead。有界 cursor 将工具、集合或过滤器与最后 ID 一起编码，跨范围复用被拒绝。查询工具保持 lexical 和 semantic 各自的证据。大文字结果以live URI投影，Storage bytes通过blob资源读取。
+metadata 与条件查询使用 Core 的列白名单、ID 升序和一项前瞻。有界 cursor 将工具、集合或过滤器与最后 ID 一起编码，跨范围复用被拒绝。查询工具保持 lexical 和 semantic 各自的证据。大文字结果通过 live URI 读取。原始 Storage bytes 和 Resolver 结果中的嵌套 bytes 都生成 blob URI，读取时以 base64 返回。
 
-当前实现仍需补齐 Python 的嵌套二进制 solved 投影、skills 扩展与所有逐项错误的精确字段。SQL metadata操作位于 Core discovery，HTTP transport仅调用该接口。
+`skills/list` 和 `skills/get` 提供静态 `use-inkcre`，`resources/read` 返回 Markdown 及其稳定 URI。逐项失败字段和工具结果中的 ResourceLink 格式仍需继续对齐。SQL metadata 操作位于 Core discovery，HTTP transport 通过该接口读取。
 
 协议依据为 MCP 2025-11-25 Streamable HTTP 规范。后续协议升级需要与 Python当前SDK所支持版本协商共同推进。
 

@@ -20,14 +20,14 @@ app 的 HTTP 入口及带版本前缀的兼容接口见 [HTTP API](http-api.md)�
 | --- | --- |
 | 知识持久化 | 原始 Block/Relation CRUD、组合事务、闭合图邻域、有界最短路径和连通分量、Resolver drafting 与带局部 ID 映射的事务提交 |
 | Storage | 可注册只读/可写 handler；PostgreSQL bytes C/R/U/D 与 HTTP(S) 有界读取；外部 handler 的副作用不具备跨进程 SQL 原子性 |
-| 知识解释 | exact Resolver registry、typed read、inline/Storage hydration。内建 text、Markdown、HTML、file、Source anchor 及基础图像和 PDF 读取 |
+| 知识解释 | exact Resolver registry、typed read、inline/Storage hydration。内建 text、Markdown、HTML、file、Source anchor、图像、PDF、ZIP 与 EPUB 读取 |
 | Peer | 稳定身份、保留用户配置的注册、租约与能力快照，支持显式 Peer 的检索委派并保留未知执行结果 |
 | Job | catalog/schema 准入、handler registry、资格判断、pending 发现、原子 claim、并发预算、持久 checkpoint、执行中取消与终态收尾；不自动重试 |
-| 定时与采集 | Source catalog/config/state/anchor、collect/backfill 框架、五段 Cron 与时区；RSS/Atom 实现真实采集、正文和附件，RSS backfill 明确不支持 |
+| 定时与采集 | Source catalog/config/state/anchor、collect/backfill 框架、五段 Cron 与时区。RSS/Atom 采集正文和附件，GitHub Stars 与 Lists 对账共享图 |
 | 检索 | PostgreSQL 词法投影和 profile 向量空间，维护和重建 Job，应用方可分别获得 hybrid 的两组排名 |
-| 第一方扩展 | RSS/Atom 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取 |
-| AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行、Agent 定义和工具调用、Organization 图写入和显式 rumination、Agent Query 与 MCP Sink |
-| 运维与接口 | stderr/HTTP tracing、serve/db-check/token、独立 `inkcre-cli` 与安装目录打包。可观测性查询和完整 CLI 对等仍在推进 |
+| 第一方扩展 | RSS/Atom 与 GitHub 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取 |
+| AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行、Agent 定义和工具调用、Organization 草稿及自动 Job、Agent Query 与 MCP Sink |
+| 运维与接口 | 请求 DTO 驱动的 OpenAPI、独立 `inkcre-cli`、安装目录打包与 Registry 发布脚本。原生 PostgreSQL 观测记录及有界查询 |
 
 知识与 Storage 的事务、读取和缓存边界见 [知识运行时](knowledge-runtime.md)；Job 执行与 Cron 发生见 [任务运行时](job-runtime.md)；RSS 的 canonical 图、游标与 materialization 见 [RSS 分发](rss-extension.md)。扩展通用方法不会自动成为业务 handler，必须通过 SDK capability descriptor 声明并注册 typed adapter。
 

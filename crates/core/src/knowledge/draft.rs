@@ -4,7 +4,7 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// A rooted authoring command, distinct from persisted GraphModel reads.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphDraft {
     pub root: i32,

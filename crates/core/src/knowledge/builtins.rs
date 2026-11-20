@@ -1,6 +1,6 @@
 use super::{
-    DraftCapability, Error, GraphDraft, ReadOptions, Resolver, ResolverContext, ResolverDescriptor,
-    Result, TextOptions, single_block_draft,
+    DraftCapability, Error, GraphDraft, ReadOptions, ReadValue, Resolver, ResolverContext,
+    ResolverDescriptor, Result, TextOptions, single_block_draft,
 };
 use crate::HydratedContent;
 use async_trait::async_trait;
@@ -23,6 +23,7 @@ pub(crate) fn resolvers() -> Vec<Arc<dyn Resolver>> {
         Arc::new(crate::source::SourceAnchorResolver),
     ];
     resolvers.extend(super::media::resolvers());
+    resolvers.extend(super::archive::resolvers());
     resolvers.extend(crate::organization::resolvers());
     resolvers
 }
@@ -49,6 +50,13 @@ impl Resolver for FileResolver {
         Ok(())
     }
     async fn solve(&self, context: &ResolverContext, options: ReadOptions) -> Result<Value> {
+        Ok(self.solve_value(context, options).await?.into_json())
+    }
+    async fn solve_value(
+        &self,
+        context: &ResolverContext,
+        options: ReadOptions,
+    ) -> Result<ReadValue> {
         let HydratedContent::Bytes(content) = context.actual_content(options.refresh).await? else {
             return Err(Error::InvalidContent {
                 resolver: "core.file.v1".into(),
@@ -57,9 +65,10 @@ impl Resolver for FileResolver {
         };
         let byte_size = content.len();
         let detected_media_type = detect_media_type(&content);
-        Ok(
-            json!({"content":content,"byte_size":byte_size,"detected_media_type":detected_media_type}),
-        )
+        Ok(ReadValue::media_content(
+            content,
+            json!({"byte_size":byte_size,"detected_media_type":detected_media_type}),
+        ))
     }
     async fn text(
         &self,

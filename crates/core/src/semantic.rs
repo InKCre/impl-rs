@@ -22,9 +22,10 @@ pub struct Profile {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Options {
+    #[schemars(range(min = 1, max = 100))]
     pub limit: i64,
     pub min_score: Option<f64>,
     pub filters: Option<BlockFilters>,
@@ -40,7 +41,7 @@ impl Default for Options {
         }
     }
 }
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub query: String,

@@ -4,9 +4,9 @@ use crate::{
 };
 use axum::{Router, extract::State, http::StatusCode, routing::post};
 use serde::Deserialize;
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Request {
+pub(crate) struct Request {
     block: i32,
 }
 pub fn router() -> Router<AppState> {

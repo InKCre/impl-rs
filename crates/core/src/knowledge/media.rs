@@ -1,6 +1,6 @@
 use super::{
-    Error, ReadOptions, Resolver, ResolverContext, ResolverDescriptor, Result, TextOptions,
-    TextProjectionContext, detect_media_type, format_label,
+    Error, ReadOptions, ReadValue, Resolver, ResolverContext, ResolverDescriptor, Result,
+    TextOptions, TextProjectionContext, detect_media_type, format_label,
 };
 use crate::HydratedContent;
 use async_trait::async_trait;
@@ -32,6 +32,23 @@ impl MediaResolver {
             resolver: self.id().into(),
             reason: "invalid media content",
         }
+    }
+
+    async fn inspect(&self, context: &ResolverContext, refresh: bool) -> Result<(Vec<u8>, Value)> {
+        let HydratedContent::Bytes(bytes) = context.actual_content(refresh).await? else {
+            return Err(self.invalid());
+        };
+        let pdf = self.pdf;
+        tokio::task::spawn_blocking(move || {
+            let metadata = if pdf {
+                inspect_pdf(&bytes)
+            } else {
+                inspect_image(&bytes)
+            }?;
+            Ok((bytes, metadata))
+        })
+        .await
+        .map_err(|_| Error::InvalidInput("media inspection task failed"))?
     }
 }
 
@@ -87,7 +104,7 @@ fn inspect_image(bytes: &[u8]) -> Result<Value> {
         other => other.extensions_str()[0],
     };
     Ok(
-        json!({"content":bytes,"byte_size":bytes.len(),"detected_media_type":detect_media_type(bytes),
+        json!({"byte_size":bytes.len(),"detected_media_type":detect_media_type(bytes),
         "format":format_name,"width":decoded.width(),"height":decoded.height(),"frame_count":frame_count}),
     )
 }
@@ -109,7 +126,7 @@ fn inspect_pdf(bytes: &[u8]) -> Result<Value> {
     let doc = pdf_document(bytes)?;
     let encrypted = doc.is_encrypted();
     Ok(
-        json!({"content":bytes,"byte_size":bytes.len(),"detected_media_type":detect_media_type(bytes),
+        json!({"byte_size":bytes.len(),"detected_media_type":detect_media_type(bytes),
         "pdf_version":doc.version,"page_count":if encrypted { None } else { Some(doc.get_pages().len()) },
         "is_encrypted":encrypted,"title":if encrypted {None} else {pdf_metadata(&doc,b"Title")},
         "author":if encrypted {None} else {pdf_metadata(&doc,b"Author")}}),
@@ -143,7 +160,7 @@ fn pdf_text(bytes: &[u8]) -> Result<Option<String>> {
     Ok((!text.is_empty()).then_some(text))
 }
 
-fn facts(kind: &str, value: &Value, fields: &[(&str, &str)]) -> String {
+pub(super) fn facts(kind: &str, value: &Value, fields: &[(&str, &str)]) -> String {
     let mut output = kind.to_owned();
     for (label, field) in fields {
         if let Some(value) = value.get(field).filter(|value| !value.is_null()) {
@@ -183,19 +200,15 @@ impl Resolver for MediaResolver {
         }
     }
     async fn solve(&self, context: &ResolverContext, options: ReadOptions) -> Result<Value> {
-        let HydratedContent::Bytes(bytes) = context.actual_content(options.refresh).await? else {
-            return Err(self.invalid());
-        };
-        let pdf = self.pdf;
-        tokio::task::spawn_blocking(move || {
-            if pdf {
-                inspect_pdf(&bytes)
-            } else {
-                inspect_image(&bytes)
-            }
-        })
-        .await
-        .map_err(|_| Error::InvalidInput("media inspection task failed"))?
+        Ok(self.solve_value(context, options).await?.into_json())
+    }
+    async fn solve_value(
+        &self,
+        context: &ResolverContext,
+        options: ReadOptions,
+    ) -> Result<ReadValue> {
+        let (bytes, metadata) = self.inspect(context, options.refresh).await?;
+        Ok(ReadValue::media_content(bytes, metadata))
     }
     async fn text(
         &self,
@@ -205,7 +218,7 @@ impl Resolver for MediaResolver {
         if !self.pdf && options.context == TextProjectionContext::Default {
             return Err(Error::Unsupported("core.image.v1 text projection".into()));
         }
-        let solved = self.solve(context, options.into()).await?;
+        let (bytes, solved) = self.inspect(context, options.refresh).await?;
         if !self.pdf {
             return Ok(Some(facts(
                 "image",
@@ -219,9 +232,6 @@ impl Resolver for MediaResolver {
                 ],
             )));
         }
-        let HydratedContent::Bytes(bytes) = context.actual_content(false).await? else {
-            return Err(self.invalid());
-        };
         let body = tokio::task::spawn_blocking(move || pdf_text(&bytes))
             .await
             .map_err(|_| Error::InvalidInput("PDF text task failed"))??;
@@ -249,15 +259,7 @@ impl Resolver for MediaResolver {
         if !self.pdf {
             return Ok("image".into());
         }
-        let solved = self
-            .solve(
-                context,
-                ReadOptions {
-                    refresh,
-                    materialize_missing: false,
-                },
-            )
-            .await?;
+        let (_, solved) = self.inspect(context, refresh).await?;
         Ok(format_label("PDF", solved["title"].as_str(), false))
     }
 }

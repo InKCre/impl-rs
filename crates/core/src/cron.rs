@@ -30,7 +30,7 @@ pub struct Cron {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CronInput {
     pub schedule: String,
@@ -45,7 +45,7 @@ fn enabled_default() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CronPatch {
     #[serde(
@@ -90,7 +90,7 @@ fn nullable<'de, D: serde::Deserializer<'de>>(
     Option::<i32>::deserialize(d).map(Some)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CronConfig {
     #[serde(default = "utc_default")]

@@ -337,7 +337,7 @@ pub fn register_tools(runtime: &mut crate::agent::Runtime, core: &Core) -> Resul
             id,
         }))?;
     }
-    Ok(())
+    draft_tools::register(runtime, core)
 }
 struct OrganizationTool {
     core: Core,
@@ -675,6 +675,7 @@ impl Core {
 }
 
 pub const RUMINATION_CAPABILITY: &str = "core.organization.rumination.v1";
+mod draft_tools;
 mod execution;
 pub use execution::{job_handlers, register_configs};
 

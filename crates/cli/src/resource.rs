@@ -42,9 +42,83 @@ pub(crate) async fn resource(
         _ => None,
     };
     if let Some((method, path)) = schema_route {
+        if group == "source" && (path.ends_with("/collect") || path.ends_with("/backfill")) {
+            let id = path
+                .split('/')
+                .nth(2)
+                .ok_or_else(|| Failure::usage("Source路径无效"))?;
+            let record = client
+                .send("GET", &format!("/sources/{id}"), None, &[])
+                .await?;
+            let type_id = record["type"]
+                .as_str()
+                .ok_or_else(|| Failure::usage("Source缺少type"))?;
+            let catalog = client
+                .send(
+                    "GET",
+                    &format!("/source-types/{}", segment(type_id)?),
+                    None,
+                    &[],
+                )
+                .await?;
+            let field = if path.ends_with("/backfill") {
+                "backfill_config_schema"
+            } else {
+                "collect_config_schema"
+            };
+            return catalog
+                .get(field)
+                .cloned()
+                .filter(Value::is_object)
+                .ok_or_else(|| Failure::usage("该Source不支持所选命令"));
+        }
         return client.schema(method, &path).await;
     }
     match resource.action {
+        Action::Methods {
+            target,
+            limit,
+            cursor,
+        } if group == "resolver" => {
+            let route = resolver_methods(&target)?;
+            client
+                .send(
+                    "GET",
+                    &route,
+                    None,
+                    &[("limit", limit.map(|n| n.to_string())), ("cursor", cursor)],
+                )
+                .await
+        }
+        Action::Invoke {
+            reference,
+            method,
+            input,
+        } if group == "resolver" => {
+            let (kind, id) = crate::entity(&reference)?;
+            if kind != "block" {
+                return Err(Failure::usage("Resolver invoke 需要Block引用"));
+            }
+            let route = format!("/blocks/{id}/resolver/methods");
+            if input.schema {
+                let catalog = client.send("GET", &route, None, &[]).await?;
+                return catalog["methods"]
+                    .as_array()
+                    .and_then(|rows| rows.iter().find(|row| row["name"] == method))
+                    .and_then(|row| row.get("input_schema"))
+                    .cloned()
+                    .ok_or_else(|| Failure::usage("未发现Resolver方法"));
+            }
+            client
+                .send(
+                    "POST",
+                    &format!("{route}/{}", segment(&method)?),
+                    Some(input.read()?),
+                    &[],
+                )
+                .await
+        }
+
         Action::Status { id } if group == "extension" => {
             client
                 .send(
@@ -448,5 +522,17 @@ fn observed(last: Value) -> Result<Value, Failure> {
         })
     } else {
         Ok(last)
+    }
+}
+
+fn resolver_methods(target: &str) -> Result<String, Failure> {
+    if target.starts_with("block:") {
+        let (kind, id) = crate::entity(target)?;
+        if kind != "block" {
+            return Err(Failure::usage("需要Block引用"));
+        }
+        Ok(format!("/blocks/{id}/resolver/methods"))
+    } else {
+        Ok(format!("/resolvers/{}/methods", segment(target)?))
     }
 }

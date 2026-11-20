@@ -297,6 +297,9 @@ async fn registry_get(
     match response.status() {
         reqwest::StatusCode::OK => Ok(response),
         reqwest::StatusCode::NOT_FOUND => Err(Error::NotFound),
+        reqwest::StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS => {
+            Err(Error::Conflict("Registry Release is blocked".into()))
+        }
         _ => Err(Error::Runtime("Registry response rejected".into())),
     }
 }

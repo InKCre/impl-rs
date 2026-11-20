@@ -1,18 +1,10 @@
-use axum::{
-    Json, Router,
-    extract::State,
-    http::header,
-    response::{IntoResponse, Response},
-    routing::post,
-};
+use axum::{Json, Router, extract::State, response::Response, routing::post};
 use inkcre_core::{GraphInput, GraphSubmission, HydratedContent};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
-use uuid::Uuid;
 
 use crate::{
-    error::{ApiError, ApiJson, ApiResult},
+    error::{ApiJson, ApiResult},
     routes::AppState,
 };
 
@@ -29,33 +21,33 @@ async fn submit_graph(
     Ok(Json(state.core.submit_graph(form).await?))
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum EntityKind {
+pub(crate) enum EntityKind {
     Block,
     Relation,
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EntityRef {
+pub(crate) struct EntityRef {
     #[serde(rename = "type")]
     kind: EntityKind,
     id: i32,
 }
 
-#[derive(Clone, Copy, Default, Deserialize)]
+#[derive(schemars::JsonSchema, Clone, Copy, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum ContentMode {
+pub(crate) enum ContentMode {
     None,
     #[default]
     Raw,
     Hydrated,
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EntityForm {
+pub(crate) struct EntityForm {
     entities: Vec<EntityRef>,
     #[serde(default)]
     content: ContentMode,
@@ -76,7 +68,6 @@ async fn entities(
     let records = state.core.entity_records(&blocks, &relations).await?;
     let knowledge = state.core.knowledge();
     let mut results = Vec::with_capacity(form.entities.len());
-    let mut parts = BTreeMap::new();
     let mut blobs = Vec::new();
     for (index, entity) in form.entities.into_iter().enumerate() {
         let id = entity.id;
@@ -95,12 +86,7 @@ async fn entities(
                                 value["hydrated_content"] = json!(text)
                             }
                             Ok(HydratedContent::Bytes(bytes)) => {
-                                let content_id = format!("body-{}@inkcre", blobs.len() + 1);
-                                parts.insert(
-                                    format!("/{index}/hydrated_content"),
-                                    content_id.clone(),
-                                );
-                                blobs.push((content_id, bytes));
+                                blobs.push((format!("/{index}/hydrated_content"), bytes));
                                 value["hydrated_content"] = Value::Null;
                             }
                             Err(_) => {
@@ -127,10 +113,7 @@ async fn entities(
         };
         results.push(result);
     }
-    if blobs.is_empty() {
-        return Ok(Json(results).into_response());
-    }
-    multipart(json!({"value":results,"parts":parts}), blobs)
+    crate::content::project(json!(results), blobs)
 }
 
 fn omit_content(value: &mut Value) {
@@ -152,27 +135,4 @@ pub(crate) fn relation_record(mut value: Value) -> Value {
 
 fn missing(kind: &str, id: i32) -> Value {
     json!({"type":kind,"id":id,"error":{"code":"not_found","message":format!("{kind} {id} not found")}})
-}
-
-fn multipart(metadata: Value, blobs: Vec<(String, Vec<u8>)>) -> ApiResult<Response> {
-    let boundary = Uuid::new_v4().simple().to_string();
-    let mut bytes = format!("--{boundary}\r\nContent-Type: application/json\r\n\r\n").into_bytes();
-    serde_json::to_writer(&mut bytes, &metadata)
-        .map_err(|_| ApiError::invalid("unable to represent entities"))?;
-    for (id, data) in blobs {
-        let marker = format!(
-            "\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\nContent-ID: <{id}>\r\n\r\n"
-        );
-        bytes.extend_from_slice(marker.as_bytes());
-        bytes.extend(data);
-    }
-    bytes.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-    Ok((
-        [(
-            header::CONTENT_TYPE,
-            format!("multipart/related; boundary={boundary}; type=\"application/json\""),
-        )],
-        bytes,
-    )
-        .into_response())
 }

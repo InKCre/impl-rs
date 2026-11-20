@@ -2,7 +2,7 @@
 use crate::{Block, Core, Error, GraphModel, Relation, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(schemars::JsonSchema, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComponentsRequest {
     pub seed_block_ids: Vec<i32>,

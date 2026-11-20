@@ -495,6 +495,13 @@ async fn execute(
         return Ok(false);
     };
     tracing::info!(event="job.started",job_id=id,job_type=%claimed.type_,"Job started");
+    core.record_event(
+        "job.started",
+        json!({"inkcre.job.id":id,"inkcre.job.status":"running","inkcre.operation":"job.execute"})
+            .as_object()
+            .expect("event object")
+            .clone(),
+    );
     if invalid {
         close(
             &core,
@@ -604,6 +611,13 @@ async fn close(core: &Core, id: i64, status: JobStatus, error: Option<&str>) -> 
         .map_err(|_|Error::Conflict("Job terminal persistence exceeded its budget".into()))??;
     if closed.rows_affected() > 0 {
         tracing::info!(event="job.closed",job_id=id,status=?status,"Job closed");
+        core.record_event(
+            "job.closed",
+            json!({"inkcre.job.id":id,"inkcre.job.status":status,"inkcre.operation":"job.execute"})
+                .as_object()
+                .expect("event object")
+                .clone(),
+        );
     }
     Ok(())
 }

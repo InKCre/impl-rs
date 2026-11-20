@@ -4,12 +4,15 @@ mod auth;
 mod component_routes;
 mod config;
 mod config_routes;
+mod content;
 mod entity_routes;
 mod error;
 mod extension_v2_routes;
 mod knowledge_routes;
 mod lexical_routes;
 mod mcp;
+mod observation_routes;
+mod openapi;
 mod organization_routes;
 mod peer_routes;
 mod retrieval_routes;
@@ -262,6 +265,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
             };
         }
     }
+    let observations = inkcre_core::observability::Runtime::start(core.clone(), peer_id).await;
     let worker = worker.map(Worker::start);
     let notifier = worker.as_ref().map(|handle| handle.notifier());
     let cron = cron.map(CronScheduler::start);
@@ -289,8 +293,10 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     inkcre_core::extension::register_registry_config(&mut configs)
         .map_err(|error| error.to_string())?;
     inkcre_core::organization::register_configs(&mut configs).map_err(|error| error.to_string())?;
+    inkcre_core::observability::register_config(&mut configs).map_err(|error| error.to_string())?;
     let state = routes::AppState {
         core: core.clone(),
+        observations: observations.clone(),
         source_registry,
         agents,
         configs,
@@ -316,6 +322,7 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     let _ = reconcile_task.await;
     let _ = runtime_task.await;
     host.shutdown().await;
+    observations.shutdown().await;
     let cleared = core.peer_clear_lease(peer_id).await;
     core.close().await;
     if cleared.is_err() {

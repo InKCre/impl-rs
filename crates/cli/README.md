@@ -25,4 +25,6 @@ JSON输入可通过 `--input`、兼容别名 `--input-file` 或 `--input-json` �
 
 当前命令包括 get/update/delete、recall、graph submit/path/neighborhood，以及 job/cron/source/peer/config/extension/agent/sink/ai/embedding-profile/resolver 的基础管理。另提供 `query --sink`、`agent tools`、`ai models`、`config schemas`、Sink配置替换、扩展select/unselect/status/config管理。扩展坐标使用 `namespace/name`，`--peer`选择远端参与者，`extension install NAME VERSION` 是精确rust_stdio选择的别名。每个资源的 `--help` 展示操作，不适用的资源操作返回用法错误。
 
-仍待对齐的Python CLI行为包括Resolver动态invoke、图连通分量、Organization入口、服务端422字段位置映射、自动长输出预览，以及部分schema的owner子合同投射。当前CLI还需配合服务实际发布的路径使用，资源list/get保持远端响应结构。完整命令兼容性仍需逐项验收。
+`resolver methods` 接受 `block:<id>` 或 exact Resolver ID，`resolver invoke --method` 调用对应读取，并可通过 `--schema` 获取方法参数。`graph components` 按输入关系类型返回连通分量。
+
+仍待对齐的Python CLI行为包括Organization入口、部分metadata命令分页参数、服务端422字段位置映射、自动长输出预览，以及部分schema的owner子合同投射。当前CLI还需配合服务实际发布的路径使用，资源list/get保持远端响应结构。完整命令兼容性仍需逐项验收。

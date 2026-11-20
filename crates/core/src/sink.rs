@@ -39,7 +39,7 @@ pub struct SinkType {
     pub config_schema: Value,
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SinkInput {
     #[serde(rename = "type")]
@@ -242,7 +242,7 @@ async fn sink_for_update(tx: &mut Transaction<'_, Postgres>, id: i64) -> Result<
     .ok_or(Error::NotFound("Sink"))
 }
 
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct QueryInput {
     pub query: String,

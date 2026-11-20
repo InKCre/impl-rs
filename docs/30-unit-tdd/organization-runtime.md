@@ -6,7 +6,7 @@
 
 `organization_synthesis` 要求非空文字和至少两个不同来源。复用条件包含文字及完整来源集合，来源以 `synthesis` 指向合成文字。指定前一合成时核对其多来源基础，并添加 `edited` 关系。`organization_anchor` 使用 `has mention` 与 `refers to` 保存具体片段，优先复用已有完整路径。每个操作在一个原生 PostgreSQL 事务内提交。
 
-`register_tools` 把七个 Organization 写入工具登记到调用者持有的 Agent Runtime。工具失败区分可反馈给模型的输入/业务错误和数据库故障。`organization_ruminate` 读取已配置 Agent，建立包含焦点文字、直接关系和 drafting 能力的首条消息，并等待实际 Turn 结束。达到模型调用预算时返回显式错误。调用者取消该 future 会取消模型与工具执行。
+`register_tools` 把七个 Organization 写入工具及三种 drafting 工具登记到调用者持有的 Agent Runtime。工具失败区分可反馈给模型的输入/业务错误和数据库故障。`organization_ruminate` 读取已配置 Agent，建立包含焦点文字、直接关系和 drafting 能力的首条消息，并等待实际 Turn 结束。达到模型调用预算时返回显式错误。调用者取消该 future 会取消模型与工具执行。
 
 Supersession Resolver 公开有界 `read_lineage`，遍历 supersedes 连通历史并检测环。结果被截断或含环时，current frontier 为空。
 
@@ -16,4 +16,6 @@ Supersession Resolver 公开有界 `read_lineage`，遍历 supersedes 连通历�
 
 每个 seed 在数据库读取结束后调用独立 Agent Turn。seed 已删除或达到模型调用预算时记录诊断并继续其他 seed，配置、数据库与执行基础故障使本次 Job 失败。非 rumination 判断读取最多 20 条直接关系，关闭缺失信息物化并携带该行为完整判断契约。
 
-原生数据库验收已覆盖关系幂等、环拒绝、lineage、合成及 anchor 复用。HTTP 与真实 worker 验收覆盖显式 rumination、自动 refinement、配置选择、bounded seeds 和 Agent 预算耗尽后的正常收尾。其余六种自动行为复用同一执行器，并对照固定 Python 的元数据和分类策略核对。通用 drafting 工具绑定与媒体解释编排仍需继续完成。
+原生数据库验收已覆盖关系幂等、环拒绝、lineage、合成及 anchor 复用。HTTP 与真实 worker 验收覆盖显式 rumination、自动 refinement、配置选择、bounded seeds 和 Agent 预算耗尽后的正常收尾。其余六种自动行为复用同一执行器，并对照固定 Python 的元数据和分类策略核对。通用 drafting 工具的模型旅程也已验证，从 schema 发现、以 -10 开始的本地 ID drafting、事务提交到持久图读取形成完整路径。媒体解释由独立业务模块实现。
+
+每次创建 Agent Thread 时，drafting Tool 重新绑定当前可用的 exact Resolver contract 和 handler。`get_draft_graph_schema` 按请求顺序返回这些输入 schema。`draft_graph` 校验选中 Resolver 的输入，重映射局部负 ID，返回 canonical flat GraphForm。`submit_graph` 复用共享图提交入口，并返回局部到持久 Block ID 映射。drafting 本身只生成命令，图写入发生于 submit。

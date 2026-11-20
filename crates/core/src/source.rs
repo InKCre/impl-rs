@@ -43,18 +43,19 @@ pub struct Source {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceInput {
     #[serde(rename = "type")]
     pub type_: String,
     pub nickname: Option<String>,
     #[serde(default = "crate::models::empty_object")]
+    #[schemars(with = "serde_json::Map<String, Value>")]
     pub config: Value,
     pub storage: Option<i32>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(schemars::JsonSchema, Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourcePatch {
     #[serde(
