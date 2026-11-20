@@ -28,4 +28,6 @@ JSON 输入可通过 `--input`、兼容别名 `--input-file` 或 `--input-json` 
 
 `resolver methods` 接受 `block:<id>` 或 exact Resolver ID，`resolver invoke --method` 调用对应读取，并可通过 `--schema` 获取方法参数。`graph components` 按输入关系类型返回连通分量。
 
+`graph submit` 保留命令局部负整数的精度，并输出原始局部 ID 与持久 Block ID 的映射。
+
 `recall` 支持semantic的 `--min-score`、重复 `--entity-type`，同一mode只请求一次；每项结果平铺保留远端字段。`graph neighborhood` 支持Block方向、重复 `--content`、limit/cursor，Relation拒绝这些遍历参数。metadata的types/schemas/tools/models支持limit/cursor。
