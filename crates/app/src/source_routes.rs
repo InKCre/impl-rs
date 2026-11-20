@@ -228,27 +228,57 @@ struct CommandQuery {
     timeout_seconds: Option<i32>,
 }
 
+fn source_command_config(headers: &HeaderMap, bytes: &[u8], required: bool) -> ApiResult<Value> {
+    if bytes.is_empty() {
+        return if required {
+            Err(ApiError::invalid("backfill config must be a JSON object"))
+        } else {
+            Ok(inkcre_core::models::empty_object())
+        };
+    }
+    if let Some(content_type) = headers.get(header::CONTENT_TYPE) {
+        let media = content_type
+            .to_str()
+            .unwrap_or("")
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        if media != "application/json"
+            && !(media.starts_with("application/") && media.ends_with("+json"))
+        {
+            return Err(ApiError::invalid("Source config must be a JSON object"));
+        }
+    }
+    let config: Value = serde_json::from_slice(bytes)
+        .map_err(|_| ApiError::invalid("Source config must be a JSON object"))?;
+    if config.is_null() && !required {
+        return Ok(inkcre_core::models::empty_object());
+    }
+    if !config.is_object() {
+        return Err(ApiError::invalid("Source config must be a JSON object"));
+    }
+    Ok(config)
+}
 async fn collect(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<i32>,
     ApiQuery(query): ApiQuery<CommandQuery>,
+    headers: HeaderMap,
     ApiBytes(bytes): ApiBytes,
 ) -> ApiResult<Response> {
-    let config = if bytes.is_empty() {
-        inkcre_core::models::empty_object()
-    } else {
-        serde_json::from_slice(&bytes)
-            .map_err(|_| ApiError::invalid("collect config must be a JSON object"))?
-    };
+    let config = source_command_config(&headers, &bytes, false)?;
     source_command(&state, id, SourceCommand::Collect, config, query).await
 }
-
 async fn backfill(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<i32>,
     ApiQuery(query): ApiQuery<CommandQuery>,
-    ApiJson(config): ApiJson<Value>,
+    headers: HeaderMap,
+    ApiBytes(bytes): ApiBytes,
 ) -> ApiResult<Response> {
+    let config = source_command_config(&headers, &bytes, true)?;
     source_command(&state, id, SourceCommand::Backfill, config, query).await
 }
 

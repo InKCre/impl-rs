@@ -409,61 +409,48 @@ impl Core {
         Ok(GraphModel { blocks, relations })
     }
 
-    /// Shortest path with explicit direction, exact filters, hop and Block budgets.
-    pub async fn find_path(
-        &self,
-        source: i32,
-        target: i32,
-        options: PathOptions,
-    ) -> Result<GraphPath> {
-        self.find_path_with_contract(source, target, options, false)
-            .await
-    }
-
-    /// Canonical graph-navigation contract, shared by REST and ordinary Tools.
-    /// Missing endpoints are a negative search result, and the hop budget is 0..=8.
+    /// Canonical bounded bidirectional graph navigation over the existing endpoint set.
     pub async fn find_path_canonical(
         &self,
         source: i32,
         target: i32,
         options: PathOptions,
     ) -> Result<GraphPath> {
-        self.find_path_with_contract(source, target, options, true)
-            .await
+        if options.max_hops > 8 || !(1..=10000).contains(&options.max_explored_blocks) {
+            return Err(Error::InvalidInput(
+                "path requires 0..=8 hops and 1..=10000 explored Blocks".into(),
+            ));
+        }
+        let mut transaction = self.pool().begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await?;
+        let result = canonical_path_in(&mut transaction, source, target, &options).await?;
+        transaction.commit().await?;
+        Ok(result)
     }
 
-    async fn find_path_with_contract(
+    /// Published SDK/versioned entry retains its original single-frontier search contract.
+    pub async fn find_path(
         &self,
         source: i32,
         target: i32,
         options: PathOptions,
-        canonical: bool,
     ) -> Result<GraphPath> {
-        let max_hops = if canonical { 8 } else { 32 };
-        if options.max_hops > max_hops
+        if options.max_hops > 32
             || !(1..=10000).contains(&options.max_explored_blocks)
-            || (!canonical && options.contents.len() > 100)
+            || options.contents.len() > 100
         {
-            return Err(Error::InvalidInput(if canonical {"path requires 0..=8 hops and 1..=10000 explored Blocks"} else {"path requires at most 32 hops, 1..=10000 explored Blocks and at most 100 contents"}.into()));
+            return Err(Error::InvalidInput(
+                "path requires at most 32 hops, 1..=10000 explored Blocks and at most 100 contents"
+                    .into(),
+            ));
         }
-        let empty = |outcome| GraphPath {
-            outcome,
-            graph: GraphModel::default(),
-            block_ids: vec![],
-            relation_ids: vec![],
-        };
         if self.block_get(source).await?.is_none() || self.block_get(target).await?.is_none() {
-            return if canonical {
-                Ok(empty(PathOutcome::NotFound))
-            } else {
-                Err(Error::NotFound("path endpoint"))
-            };
+            return Err(Error::NotFound("path endpoint"));
         }
         if source == target {
             return self.assemble_path(vec![source], vec![]).await;
-        }
-        if canonical && options.max_hops == 0 {
-            return Ok(empty(PathOutcome::LimitReached));
         }
         let mut queue = VecDeque::from([(source, 0u8)]);
         let mut previous: HashMap<i32, (i32, Relation)> = HashMap::new();
@@ -562,4 +549,260 @@ impl Core {
             relation_ids,
         })
     }
+}
+
+struct PathSide {
+    frontier: BTreeSet<i32>,
+    steps: HashMap<i32, Option<(i32, i32)>>,
+    depths: HashMap<i32, u8>,
+}
+impl PathSide {
+    fn new(endpoint: i32) -> Self {
+        Self {
+            frontier: BTreeSet::from([endpoint]),
+            steps: HashMap::from([(endpoint, None)]),
+            depths: HashMap::from([(endpoint, 0)]),
+        }
+    }
+    fn level(&self) -> u8 {
+        self.depths[self.frontier.first().expect("nonempty frontier")]
+    }
+}
+fn empty_path(outcome: PathOutcome) -> GraphPath {
+    GraphPath {
+        outcome,
+        graph: GraphModel::default(),
+        block_ids: vec![],
+        relation_ids: vec![],
+    }
+}
+async fn canonical_path_in(
+    connection: &mut PgConnection,
+    source: i32,
+    target: i32,
+    options: &PathOptions,
+) -> Result<GraphPath> {
+    let endpoints: Vec<Block> = sqlx::query_as(&format!(
+        "SELECT {BLOCK_COLUMNS} FROM inkcre.blocks WHERE id=ANY($1) ORDER BY id"
+    ))
+    .bind([source, target])
+    .fetch_all(&mut *connection)
+    .await?;
+    let present: BTreeSet<_> = endpoints.iter().map(|b| b.id).collect();
+    if present != BTreeSet::from([source, target]) {
+        return Ok(empty_path(PathOutcome::NotFound));
+    }
+    if source == target {
+        return Ok(GraphPath {
+            outcome: PathOutcome::Found,
+            graph: GraphModel {
+                blocks: endpoints,
+                relations: vec![],
+            },
+            block_ids: vec![source],
+            relation_ids: vec![],
+        });
+    }
+    let mut forward = PathSide::new(source);
+    let mut backward = PathSide::new(target);
+    let mut explored = BTreeSet::from([source, target]);
+    if explored.len() > options.max_explored_blocks as usize {
+        return Ok(empty_path(PathOutcome::LimitReached));
+    }
+    while !forward.frontier.is_empty() && !backward.frontier.is_empty() {
+        if forward.level() + backward.level() >= options.max_hops {
+            return Ok(empty_path(PathOutcome::LimitReached));
+        }
+        let expansion = if forward.frontier.len() <= backward.frontier.len() {
+            expand_path_side(
+                connection,
+                &mut forward,
+                &backward,
+                options,
+                false,
+                &mut explored,
+            )
+            .await?
+        } else {
+            expand_path_side(
+                connection,
+                &mut backward,
+                &forward,
+                options,
+                true,
+                &mut explored,
+            )
+            .await?
+        };
+        // A whole-level budget overflow cannot be rescued by a later meeting.
+        if matches!(expansion, PathExpansion::BudgetExceeded)
+            || explored.len() > options.max_explored_blocks as usize
+        {
+            return Ok(empty_path(PathOutcome::LimitReached));
+        }
+        if let PathExpansion::Complete(Some(meeting)) = expansion {
+            return assemble_canonical_path(
+                connection, source, target, meeting, &forward, &backward,
+            )
+            .await;
+        }
+    }
+    Ok(empty_path(PathOutcome::NotFound))
+}
+enum PathExpansion {
+    Complete(Option<i32>),
+    BudgetExceeded,
+}
+#[derive(sqlx::FromRow)]
+struct PathRelation {
+    id: i32,
+    from_: Option<i32>,
+    to_: Option<i32>,
+}
+
+async fn expand_path_side(
+    connection: &mut PgConnection,
+    own: &mut PathSide,
+    other: &PathSide,
+    options: &PathOptions,
+    reverse: bool,
+    explored: &mut BTreeSet<i32>,
+) -> Result<PathExpansion> {
+    let outward = matches!(options.direction, Direction::Out | Direction::Both);
+    let inward = matches!(options.direction, Direction::In | Direction::Both);
+    let mut next = BTreeSet::new();
+    let mut meeting = None;
+    let mut best_hops = None;
+    let frontier: Vec<_> = own.frontier.iter().copied().collect();
+    for chunk in frontier.chunks(200) {
+        let members: BTreeSet<_> = chunk.iter().copied().collect();
+        let relations = path_frontier_relations(connection, chunk, options, reverse).await?;
+        for relation in relations {
+            let relation_id = relation.id;
+            let (Some(from), Some(to)) = (relation.from_, relation.to_) else {
+                continue;
+            };
+            let steps = if !reverse {
+                [
+                    (outward && members.contains(&from)).then_some((from, to)),
+                    (inward && members.contains(&to)).then_some((to, from)),
+                ]
+            } else {
+                [
+                    (outward && members.contains(&to)).then_some((to, from)),
+                    (inward && members.contains(&from)).then_some((from, to)),
+                ]
+            };
+            for (current, neighbor) in steps.into_iter().flatten() {
+                if own.steps.contains_key(&neighbor) {
+                    continue;
+                }
+                own.steps.insert(neighbor, Some((current, relation_id)));
+                explored.insert(neighbor);
+                if explored.len() > options.max_explored_blocks as usize {
+                    return Ok(PathExpansion::BudgetExceeded);
+                }
+                let depth = own.depths[&current] + 1;
+                own.depths.insert(neighbor, depth);
+                next.insert(neighbor);
+                if let Some(other_depth) = other.depths.get(&neighbor) {
+                    let hops = depth + other_depth;
+                    if hops <= options.max_hops && best_hops.is_none_or(|best| hops < best) {
+                        best_hops = Some(hops);
+                        meeting = Some(neighbor);
+                    }
+                }
+            }
+        }
+    }
+    own.frontier = next;
+    Ok(PathExpansion::Complete(meeting))
+}
+async fn path_frontier_relations(
+    connection: &mut PgConnection,
+    frontier: &[i32],
+    options: &PathOptions,
+    reverse: bool,
+) -> Result<Vec<PathRelation>> {
+    let outward = matches!(options.direction, Direction::Out | Direction::Both);
+    let inward = matches!(options.direction, Direction::In | Direction::Both);
+    let needs_from = if reverse { inward } else { outward };
+    let needs_to = if reverse { outward } else { inward };
+    let mut result = Vec::new();
+    let mut seen = BTreeSet::new();
+    // Python preserves first insertion across the from-then-to branches, each ordered by ID DESC.
+    for (enabled, endpoint) in [(needs_from, "from_"), (needs_to, "to_")] {
+        if !enabled {
+            continue;
+        }
+        let query = format!(
+            "SELECT id,from_,to_ FROM inkcre.relations WHERE {endpoint}=ANY($1) AND (cardinality($2::text[])=0 OR content=ANY($2)) ORDER BY id DESC LIMIT 10000"
+        );
+        let rows: Vec<PathRelation> = sqlx::query_as(&query)
+            .bind(frontier)
+            .bind(&options.contents)
+            .fetch_all(&mut *connection)
+            .await?;
+        for relation in rows {
+            if seen.insert(relation.id) {
+                result.push(relation);
+            }
+        }
+    }
+    Ok(result)
+}
+async fn assemble_canonical_path(
+    connection: &mut PgConnection,
+    source: i32,
+    target: i32,
+    meeting: i32,
+    forward: &PathSide,
+    backward: &PathSide,
+) -> Result<GraphPath> {
+    let mut block_ids = vec![meeting];
+    let mut relation_ids = Vec::new();
+    let mut current = meeting;
+    while current != source {
+        let (parent, relation) = forward.steps[&current].expect("forward path parent");
+        current = parent;
+        block_ids.push(current);
+        relation_ids.push(relation);
+    }
+    block_ids.reverse();
+    relation_ids.reverse();
+    current = meeting;
+    while current != target {
+        let (next, relation) = backward.steps[&current].expect("backward path successor");
+        current = next;
+        block_ids.push(current);
+        relation_ids.push(relation);
+    }
+    let blocks: Vec<Block> = sqlx::query_as(&format!(
+        "SELECT {BLOCK_COLUMNS} FROM inkcre.blocks WHERE id=ANY($1) ORDER BY id"
+    ))
+    .bind(&block_ids)
+    .fetch_all(&mut *connection)
+    .await?;
+    let existing: BTreeSet<_> = blocks.iter().map(|b| b.id).collect();
+    let expected: BTreeSet<_> = block_ids.iter().copied().collect();
+    let records: Vec<Relation> = sqlx::query_as(&format!(
+        "SELECT {RELATION_COLUMNS} FROM inkcre.relations WHERE id=ANY($1)"
+    ))
+    .bind(&relation_ids)
+    .fetch_all(&mut *connection)
+    .await?;
+    let records: HashMap<_, _> = records.into_iter().map(|row| (row.id, row)).collect();
+    let relations: Vec<_> = relation_ids
+        .iter()
+        .filter_map(|id| records.get(id).cloned())
+        .collect();
+    if existing != expected || relations.len() != relation_ids.len() {
+        return Ok(empty_path(PathOutcome::NotFound));
+    }
+    Ok(GraphPath {
+        outcome: PathOutcome::Found,
+        graph: GraphModel { blocks, relations },
+        block_ids,
+        relation_ids,
+    })
 }
