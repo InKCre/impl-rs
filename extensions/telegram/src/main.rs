@@ -47,6 +47,7 @@ impl Extension for Telegram {
             config_schema: json!({"type":"object","properties":{},"additionalProperties":false}),
             methods: vec![MATERIALIZE_METHOD.into()],
             capabilities: Capabilities {
+                passive_knowledge: true,
                 http_ingress: Some(HttpIngress {
                     routes: vec![HttpRoute {
                         method: "POST".into(),
@@ -90,6 +91,21 @@ impl Extension for Telegram {
                 ..Default::default()
             },
         }
+    }
+    async fn start_knowledge(
+        &mut self,
+        context: inkcre_extension_sdk::KnowledgeStartContext,
+    ) -> std::result::Result<(), RpcError> {
+        self.start(inkcre_extension_sdk::StartContext {
+            peer_id: context.peer_id,
+            config: json!({}),
+            state: json!({}),
+        })
+        .await
+        .map(|_| ())
+    }
+    async fn stop_knowledge(&mut self) -> std::result::Result<(), RpcError> {
+        self.stop().await
     }
     async fn start(&mut self, _: StartContext) -> Result<Value> {
         let url =

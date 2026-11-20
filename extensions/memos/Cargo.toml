@@ -1,0 +1,27 @@
+[package]
+name = "inkcre-memos-extension"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+description = "InKCre memo-family graph and Memos 0.29.1 HTTP protocol"
+
+[package.metadata.inkcre]
+extension = "inkcre/memos"
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+chrono.workspace = true
+inkcre-core.workspace = true
+inkcre-extension-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

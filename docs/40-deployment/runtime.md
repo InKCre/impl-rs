@@ -69,7 +69,9 @@ python3 scripts/publish_extension.py inkcre/learn-english --nickname 'Learn Engl
 
 多个平台时重复 `--package TARGET=DIR`。构建目标由发布者明确指定。每个平台目录应在对应目标成功构建后生成，所有目录使用同一 Release、源码和 SDK 提交。
 
-enable 保存意图后启动插件，initialize 获得该精确分发的 config schema 和 typed capability descriptor，start 完成后注册本机 Resolver、Storage、Source 或 Job adapter，并复核选择。共享 catalog 中有类型不代表当前 Peer 已加载 handler。配置更新使用当前 Peer 精确 schema，不合并其他分发 schema；运行实例通过停用再启用读取新配置。disable 撤回 adapter、取消在途调用并停止实际子进程；数据库失败时本机停用状态保留，通过 `locally_disabled` 区分尚未同步的共享 enabled。周期 reconcile 处理其他 Peer 修改的启用、移除或版本选择。
+enable 保存意图后启动插件，initialize 获得该精确分发的 config schema 和 typed capability descriptor，start 完成后注册本机 Resolver、Storage、Source 或 Job adapter，并复核选择。共享 catalog 中有类型不代表当前 Peer 已加载 handler。配置更新使用当前 Peer 精确 schema，不合并其他分发 schema；运行实例通过停用再启用读取新配置。disable 撤回活动 adapter、取消在途调用并停止实际子进程。数据库失败时本机停用状态保留，通过 `locally_disabled` 区分尚未同步的共享 enabled。周期 reconcile 处理其他 Peer 修改的启用、移除或版本选择。
+
+宿主读取可信 artifact 的配置 schema 后，已停用的参与也可验证配置。声明 `passive_knowledge` 的精确产物通过独立进程继续解算持久 Block。停用后活跃进程、HTTP 和 Job/Source 能力会撤回，扩展状态仍显示 `running=false`。`unselect` 释放所选产物的本机读取进程。重启时从当前数据库精确选择恢复读取。
 
 原生 executable 是可信代码，进程隔离承担生命周期管理。宿主以 `INKCRE_DATABASE_URL` 向受信插件提供 native 数据库能力，凭据不会写进 manifest 或共享扩展 config。初始化和通用 SDK 操作每帧上限为 1 MiB。扩展 HTTP 路由通过独立的 `http_request` 帧传递原始 body，body 上限 45 MiB，传输帧上限 64 MiB。本机 HTTP 层最多同时处理四个扩展 HTTP 请求。
 

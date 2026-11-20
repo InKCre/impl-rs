@@ -333,6 +333,7 @@ impl Extension for Capture {
             config_schema: json!({"type":"object","additionalProperties":false,"properties":{}}),
             methods: vec![],
             capabilities: Capabilities {
+                passive_knowledge: true,
                 resolvers: [
                     (CAPTURE, capture_schema()),
                     (ATTACHMENT, attachment_schema()),
@@ -356,6 +357,21 @@ impl Extension for Capture {
                 ..Default::default()
             },
         }
+    }
+    async fn start_knowledge(
+        &mut self,
+        context: inkcre_extension_sdk::KnowledgeStartContext,
+    ) -> std::result::Result<(), RpcError> {
+        self.start(inkcre_extension_sdk::StartContext {
+            peer_id: context.peer_id,
+            config: json!({}),
+            state: json!({}),
+        })
+        .await
+        .map(|_| ())
+    }
+    async fn stop_knowledge(&mut self) -> std::result::Result<(), RpcError> {
+        self.stop().await
     }
     async fn start(&mut self, _context: StartContext) -> Result<Value> {
         let url = std::env::var("INKCRE_DATABASE_URL")

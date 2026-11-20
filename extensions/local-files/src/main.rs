@@ -235,6 +235,7 @@ impl Extension for LocalFiles {
             config_schema: json!({"type":"object","additionalProperties":false,"properties":{}}),
             methods: vec![],
             capabilities: Capabilities {
+                passive_knowledge: true,
                 resolvers: [V1, V2]
                     .into_iter()
                     .map(|id| ResolverCapability {
@@ -261,6 +262,21 @@ impl Extension for LocalFiles {
             "unknown_method",
             "Local Files has no generic commands",
         ))
+    }
+    async fn start_knowledge(
+        &mut self,
+        context: inkcre_extension_sdk::KnowledgeStartContext,
+    ) -> std::result::Result<(), RpcError> {
+        self.start(inkcre_extension_sdk::StartContext {
+            peer_id: context.peer_id,
+            config: json!({}),
+            state: json!({}),
+        })
+        .await
+        .map(|_| ())
+    }
+    async fn stop_knowledge(&mut self) -> std::result::Result<(), RpcError> {
+        self.stop().await
     }
     async fn start(&mut self, _context: StartContext) -> Result<Value> {
         let url = std::env::var("INKCRE_DATABASE_URL").map_err(|_| invalid())?;

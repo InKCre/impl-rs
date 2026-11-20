@@ -24,6 +24,8 @@
 
 扩展适配器使用当前 running generation 的 UUID 作为 owner。撤销 owner 只移除这一代的 adapter，不能删除内建 handler 或另一个 running generation。宿主撤销后仍存活的调用也不能借旧 adapter 重新启动已停止的插件；进程句柄和调用收尾由扩展宿主拥有。
 
+声明 `passive_knowledge` 的已安装精确产物在当前 Peer 停用时仍可启动独立资料读取进程。其 adapter 只注册 Resolver 和已声明的 Storage 读取，允许查询现有资料与生成草稿。启用、替换、撤销选择时替换或释放这一代读取进程。旧产物通过原有活动进程提供能力。
+
 typed read 方法拥有名称、说明和 JSON input schema。公共方法包括 `get_raw_content`、`get_solved_content`、`get_text`、`get_label`、`get_relations` 和 `get_transfer_url`；额外只读方法使用 `get_` 或 `read_` 前缀。公共方法的参数合同不能由某个插件重定义。调用边界先校验参数，再执行具体方法。
 
 直接关系的方向相对当前 Block：incoming 以当前 Block 为 target，outgoing 以当前 Block 为 source。它不隐含递归。Resolver context 的直接读取有明确数量边界，超过边界返回错误，不静默截断为一个看似完整的图。

@@ -21,6 +21,7 @@ struct RuntimeLink {
     extension: String,
     version: String,
     peer_id: uuid::Uuid,
+    knowledge_only: bool,
 }
 
 impl RuntimeLink {
@@ -36,7 +37,7 @@ impl RuntimeLink {
             .participation_get(&self.extension, self.peer_id)
             .await?
             .is_some_and(|selected| {
-                selected.enabled
+                selected.enabled != self.knowledge_only
                     && selected.distribution.as_deref() == Some(wire::DISTRIBUTION)
                     && selected.version == self.version
             }))
@@ -374,7 +375,7 @@ impl k::StorageHandler for StorageAdapter {
             .map_err(|_| k::Error::InvalidInput("Extension Storage read must return bytes"))
     }
     fn writable(&self) -> Option<&dyn k::WritableStorageHandler> {
-        self.capability.writable.then_some(self)
+        (self.capability.writable && !self.link.knowledge_only).then_some(self)
     }
 }
 
@@ -595,6 +596,7 @@ pub(super) async fn publish(
     manifest: &Manifest,
     descriptor: &Descriptor,
     process: &Arc<Process>,
+    knowledge_only: bool,
 ) -> Result<()> {
     descriptor.capabilities.validate()?;
     for capability in &descriptor.capabilities.resolvers {
@@ -605,10 +607,10 @@ pub(super) async fn publish(
                 .map_err(|_| Error::Invalid("Resolver canonical content schema 无效".into()))?;
         }
     }
-    if !descriptor.capabilities.jobs.is_empty() && host.jobs.is_none() {
+    if !knowledge_only && !descriptor.capabilities.jobs.is_empty() && host.jobs.is_none() {
         return Err(Error::Conflict("宿主未配置 Job registry".into()));
     }
-    if !descriptor.capabilities.sources.is_empty() && host.sources.is_none() {
+    if !knowledge_only && !descriptor.capabilities.sources.is_empty() && host.sources.is_none() {
         return Err(Error::Conflict("宿主未配置 Source runtime".into()));
     }
     let owner = uuid::Uuid::new_v4();
@@ -631,6 +633,7 @@ pub(super) async fn publish(
         extension: manifest.name.clone(),
         version: manifest.version.to_string(),
         peer_id: host.peer_id,
+        knowledge_only,
     };
     for capability in &descriptor.capabilities.resolvers {
         registry
@@ -644,15 +647,19 @@ pub(super) async fn publish(
             .map_err(crate::Error::from)?;
     }
     for capability in &descriptor.capabilities.storages {
-        registry
-            .register_storage(
-                owner,
-                Arc::new(StorageAdapter {
-                    link: link.clone(),
-                    capability: capability.clone(),
-                }),
-            )
-            .map_err(crate::Error::from)?;
+        let handler = Arc::new(StorageAdapter {
+            link: link.clone(),
+            capability: capability.clone(),
+        });
+        if knowledge_only {
+            registry.register_passive_storage(owner, handler)
+        } else {
+            registry.register_storage(owner, handler)
+        }
+        .map_err(crate::Error::from)?;
+    }
+    if knowledge_only {
+        return Ok(());
     }
     if let Some(sources) = &host.sources {
         for capability in &descriptor.capabilities.sources {

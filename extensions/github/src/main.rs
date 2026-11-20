@@ -49,6 +49,7 @@ impl Extension for Github {
             config_schema: json!({"type":"object","properties":{}}),
             methods: vec![],
             capabilities: Capabilities {
+                passive_knowledge: true,
                 sources: vec![SourceCapability {
                     id: SOURCE.into(),
                     description: Some(
@@ -82,6 +83,21 @@ impl Extension for Github {
                 ..Default::default()
             },
         }
+    }
+    async fn start_knowledge(
+        &mut self,
+        context: inkcre_extension_sdk::KnowledgeStartContext,
+    ) -> std::result::Result<(), RpcError> {
+        self.start(inkcre_extension_sdk::StartContext {
+            peer_id: context.peer_id,
+            config: json!({}),
+            state: json!({}),
+        })
+        .await
+        .map(|_| ())
+    }
+    async fn stop_knowledge(&mut self) -> std::result::Result<(), RpcError> {
+        self.stop().await
     }
     async fn start(&mut self, _: StartContext) -> Result<Value> {
         let url =

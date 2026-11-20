@@ -248,13 +248,26 @@ impl Core {
         version: &str,
         schema: Value,
     ) -> Result<bool> {
+        self.participation_update_schema_in_mode(name, peer_id, distribution, version, schema, true)
+            .await
+    }
+
+    pub(crate) async fn participation_update_schema_in_mode(
+        &self,
+        name: &str,
+        peer_id: Uuid,
+        distribution: &str,
+        version: &str,
+        schema: Value,
+        enabled: bool,
+    ) -> Result<bool> {
         if !schema.is_object() {
             return Err(Error::InvalidInput(
                 "config schema must be an object".into(),
             ));
         }
-        Ok(sqlx::query("UPDATE inkcre.extension_peer_participations SET config_schema=$5 WHERE name=$1 AND peer_id=$2 AND distribution=$3 AND version=$4 AND enabled=true")
-            .bind(name).bind(peer_id).bind(distribution).bind(version).bind(schema).execute(self.pool()).await?.rows_affected()>0)
+        Ok(sqlx::query("UPDATE inkcre.extension_peer_participations SET config_schema=$5 WHERE name=$1 AND peer_id=$2 AND distribution=$3 AND version=$4 AND enabled=$6")
+            .bind(name).bind(peer_id).bind(distribution).bind(version).bind(schema).bind(enabled).execute(self.pool()).await?.rows_affected()>0)
     }
     pub async fn participation_set_enabled(
         &self,

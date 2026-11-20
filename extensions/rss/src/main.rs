@@ -120,6 +120,7 @@ impl Extension for Rss {
                 "materialize_enclosure".into(),
             ],
             capabilities: Capabilities {
+                passive_knowledge: true,
                 http_ingress: Some(ingress::descriptor()),
                 sources: [
                     (
@@ -163,6 +164,21 @@ impl Extension for Rss {
                 ..Default::default()
             },
         }
+    }
+    async fn start_knowledge(
+        &mut self,
+        context: inkcre_extension_sdk::KnowledgeStartContext,
+    ) -> std::result::Result<(), RpcError> {
+        self.start(inkcre_extension_sdk::StartContext {
+            peer_id: context.peer_id,
+            config: json!({}),
+            state: json!({}),
+        })
+        .await
+        .map(|_| ())
+    }
+    async fn stop_knowledge(&mut self) -> std::result::Result<(), RpcError> {
+        self.stop().await
     }
     async fn start(&mut self, _context: StartContext) -> std::result::Result<Value, RpcError> {
         let url = std::env::var("INKCRE_DATABASE_URL").map_err(|_| {

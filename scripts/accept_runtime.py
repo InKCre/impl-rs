@@ -295,10 +295,19 @@ class RuntimeJourney(Journey):
             self.jobs.append(repeated["id"])
             self.wait_job(repeated["id"])
         self.observations.append("app重启恢复、自动Cron物化与同occurrence去重")
-        self.request("POST", f"/api/v1/extensions/{self.plugin}/disable")
-        self.request("GET", "/api/v1/resolvers/extensions.rss.feed_item.v1/methods", expected=501)
-        self.request("GET", f"/api/v1/blocks/{item_ids[0]}")
-        self.observations.append("插件撤销typed能力但保留持久资料")
+        disabled = self.request("POST", f"/api/v1/extensions/{self.plugin}/disable")
+        if disabled["enabled"] or disabled["running"]:
+            raise RuntimeError("disabled extension still exposes its active lifecycle")
+        self.request("POST", "/rss/enclosures/materialize", {
+            "enclosure_block_ids": item["enclosure_block_ids"],
+        }, expected=404)
+        endpoint = f"/api/v1/blocks/{item_ids[0]}/solved?materialize_missing=false"
+        before_restart = self.request("GET", endpoint)
+        self.stop()
+        self.start()
+        if not before_restart or before_restart != self.request("GET", endpoint):
+            raise RuntimeError("exact Decoder did not survive a disabled extension restart")
+        self.observations.append("扩展停用后撤回 HTTP，重启后仍可读取原有资料")
 
     def cleanup(self):
         self.feed.release_slow.set()

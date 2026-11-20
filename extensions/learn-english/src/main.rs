@@ -61,6 +61,7 @@ impl Extension for LearnEnglish {
             config_schema: json!({"type":"object","properties":{}}),
             methods: vec![],
             capabilities: Capabilities {
+                passive_knowledge: true,
                 resolvers: vec![ResolverCapability {
                     id: RESOLVER.into(),
                     description: "An English word, phrase, or idiom".into(),
@@ -81,6 +82,12 @@ impl Extension for LearnEnglish {
         }
     }
 
+    async fn start_knowledge(
+        &mut self,
+        _: inkcre_extension_sdk::KnowledgeStartContext,
+    ) -> std::result::Result<(), RpcError> {
+        Ok(())
+    }
     async fn start(&mut self, _context: StartContext) -> Result<Value> {
         Ok(json!({"started":true}))
     }

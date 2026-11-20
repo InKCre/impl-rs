@@ -95,10 +95,28 @@ impl Registry {
         Ok(())
     }
     pub fn register_storage(&self, owner: Uuid, handler: Arc<dyn StorageHandler>) -> Result<()> {
+        self.register_storage_in_mode(owner, handler, false)
+    }
+
+    /// A passive handler retains the shared type declaration while serving reads locally.
+    pub(crate) fn register_passive_storage(
+        &self,
+        owner: Uuid,
+        handler: Arc<dyn StorageHandler>,
+    ) -> Result<()> {
+        self.register_storage_in_mode(owner, handler, true)
+    }
+
+    fn register_storage_in_mode(
+        &self,
+        owner: Uuid,
+        handler: Arc<dyn StorageHandler>,
+        passive: bool,
+    ) -> Result<()> {
         let descriptor = handler.descriptor();
         if owner.is_nil()
             || descriptor.id.trim().is_empty()
-            || descriptor.writable != handler.writable().is_some()
+            || (descriptor.writable && !passive) != handler.writable().is_some()
         {
             return Err(Error::InvalidInput(
                 "Storage registration must match its writable capability",

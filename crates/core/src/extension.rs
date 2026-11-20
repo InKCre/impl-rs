@@ -36,6 +36,7 @@ use crate::{
 
 mod adapters;
 mod http_ingress;
+mod passive;
 mod registry;
 pub use http_ingress::*;
 pub use registry::register_registry_config;
@@ -107,6 +108,7 @@ pub struct ExtensionHost {
 #[derive(Default)]
 struct HostState {
     running: HashMap<String, Running>,
+    knowledge: HashMap<String, passive::Slot>,
     errors: HashMap<String, String>,
     failed_versions: HashMap<String, String>,
     local_stops: HashSet<String>,
@@ -569,6 +571,21 @@ impl ExtensionHost {
             .await?;
         state.errors.remove(&manifest.name);
         state.failed_versions.remove(&manifest.name);
+        if let Some(selection) = self
+            .core
+            .participation_get(&manifest.name, self.peer_id)
+            .await?
+            && !self.locally_disabled(&selection.name, &state).await?
+        {
+            if state
+                .knowledge
+                .get(&selection.name)
+                .is_some_and(|slot| slot.error().is_some())
+            {
+                passive::withdraw(&mut state, &selection.name).await;
+            }
+            self.ensure_knowledge(&selection, &mut state).await;
+        }
         self.status_locked(&manifest.name, &mut state).await
     }
 
@@ -590,6 +607,56 @@ impl ExtensionHost {
         }
         verify_digest(&directory.join(&manifest.executable), &manifest.sha256).await?;
         Ok(manifest)
+    }
+
+    async fn open_exact(&self, name: &str, version: &str) -> Result<Running> {
+        let manifest = self.read_installed(name, version).await?;
+        let directory = self.installed_dir(name, version)?;
+        if tokio::fs::try_exists(directory.join(registry::ORIGIN_MARKER)).await? {
+            self.verify_registry_admission(&manifest).await?;
+        }
+        let process = Arc::new(
+            Process::spawn(
+                &directory.join(&manifest.executable),
+                self.database_url.as_deref(),
+            )
+            .await?,
+        );
+        let initialize: Result<Descriptor> = async {
+            let descriptor: Descriptor = serde_json::from_value(
+                process
+                    .call(
+                        "initialize",
+                        json!({"host_sdk_version": SDK_VERSION}),
+                        Some(CALL_TIMEOUT),
+                    )
+                    .await?,
+            )?;
+            if descriptor.name != manifest.name
+                || descriptor.version != manifest.version
+                || descriptor.protocol_version != PROTOCOL_VERSION
+                || !manifest.host_sdk_version.matches(&descriptor.sdk_version)
+            {
+                return Err(Error::Conflict("扩展 handshake 与 manifest 不一致".into()));
+            }
+            if !descriptor.config_schema.is_object() {
+                return Err(Error::Invalid("config schema 必须为对象".into()));
+            }
+            descriptor.capabilities.validate()?;
+            Ok(descriptor)
+        }
+        .await;
+        match initialize {
+            Ok(descriptor) => Ok(Running {
+                manifest,
+                descriptor,
+                process,
+            }),
+            Err(error) => {
+                process.stop().await;
+                Err(error)
+            }
+        }
     }
 
     pub async fn enable(&self, name: &str) -> Result<ExtensionStatus> {
@@ -635,46 +702,15 @@ impl ExtensionHost {
             }
             state.running.remove(name);
         }
-        let manifest = self.read_installed(name, &selected.version).await?;
-        if tokio::fs::try_exists(
-            self.installed_dir(name, &selected.version)?
-                .join(registry::ORIGIN_MARKER),
-        )
-        .await?
-        {
-            self.verify_registry_admission(&manifest).await?;
-        }
-        let process = Arc::new(
-            Process::spawn(
-                &self
-                    .installed_dir(name, &selected.version)?
-                    .join(&manifest.executable),
-                self.database_url.as_deref(),
-            )
-            .await?,
-        );
-        let result: Result<Descriptor> = async {
-            let descriptor: Descriptor = serde_json::from_value(
-                process
-                    .call(
-                        "initialize",
-                        json!({"host_sdk_version":inkcre_extension_sdk::SDK_VERSION}),
-                        Some(CALL_TIMEOUT),
-                    )
-                    .await?,
-            )?;
-            if descriptor.name != manifest.name
-                || descriptor.version != manifest.version
-                || descriptor.protocol_version != PROTOCOL_VERSION
-                || !manifest.host_sdk_version.matches(&descriptor.sdk_version)
-            {
-                return Err(Error::Conflict("扩展 handshake 与 manifest 不一致".into()));
-            }
-            if !descriptor.config_schema.is_object() {
-                return Err(Error::Invalid("config schema 必须为对象".into()));
-            }
-            descriptor.capabilities.validate()?;
-            http_ingress::check_activation(self, state, &descriptor)?;
+        passive::withdraw(state, name).await;
+        let running = self.open_exact(name, &selected.version).await?;
+        let Running {
+            manifest,
+            descriptor,
+            process,
+        } = &running;
+        let result: Result<()> = async {
+            http_ingress::check_activation(self, state, descriptor)?;
             // schema 描述已验证的精确产物，不能依赖成功 start 才能编辑必填配置。
             if !self
                 .core
@@ -708,37 +744,30 @@ impl ExtensionHost {
                 .participation_get(name, self.peer_id)
                 .await?
                 .ok_or_else(|| Error::Conflict("启动期间参与记录已移除".into()))?;
-            if !same_selection(&current, &manifest) || !current.enabled {
+            if !same_selection(&current, manifest) || !current.enabled {
                 return Err(Error::Conflict(
                     "启动期间 selection 或 enabled 已改变".into(),
                 ));
             }
-            adapters::publish(self, &manifest, &descriptor, &process).await?;
+            adapters::publish(self, manifest, descriptor, process, false).await?;
             let current = self
                 .core
                 .participation_get(name, self.peer_id)
                 .await?
                 .ok_or_else(|| Error::Conflict("能力发布期间参与记录已移除".into()))?;
-            if !same_selection(&current, &manifest) || !current.enabled {
+            if !same_selection(&current, manifest) || !current.enabled {
                 return Err(Error::Conflict(
                     "能力发布期间 selection 或 enabled 已改变".into(),
                 ));
             }
-            Ok(descriptor)
+            Ok(())
         }
         .await;
         match result {
-            Ok(descriptor) => {
+            Ok(()) => {
                 state.errors.remove(name);
                 state.failed_versions.remove(name);
-                state.running.insert(
-                    name.into(),
-                    Running {
-                        manifest,
-                        descriptor,
-                        process,
-                    },
-                );
+                state.running.insert(name.into(), running);
                 Ok(())
             }
             Err(error) => {
@@ -765,6 +794,9 @@ impl ExtensionHost {
         self.clear_local_stop(name, &mut state).await?;
         state.errors.remove(name);
         state.failed_versions.remove(name);
+        if let Some(selection) = self.core.participation_get(name, self.peer_id).await? {
+            self.ensure_knowledge(&selection, &mut state).await;
+        }
         self.status_locked(name, &mut state).await
     }
 
@@ -875,6 +907,8 @@ impl ExtensionHost {
     }
 
     async fn reconcile_locked(&self, state: &mut HostState) -> Result<()> {
+        let participation = self.core.participations(self.peer_id).await?;
+        self.reconcile_knowledge(&participation, state).await?;
         let names: Vec<_> = state.running.keys().cloned().collect();
         for name in names {
             let selected = self.core.participation_get(&name, self.peer_id).await?;
@@ -905,7 +939,7 @@ impl ExtensionHost {
                 }
             }
         }
-        for selected in self.core.participations(self.peer_id).await? {
+        for selected in participation {
             if self.locally_disabled(&selected.name, state).await? {
                 if selected.enabled {
                     if self
@@ -933,6 +967,7 @@ impl ExtensionHost {
             if !selected.enabled {
                 state.errors.remove(&selected.name);
                 state.failed_versions.remove(&selected.name);
+                self.ensure_knowledge(&selected, state).await;
             } else if selected.distribution.as_deref() == Some(inkcre_extension_sdk::DISTRIBUTION)
                 && !state.running.contains_key(&selected.name)
                 && state.failed_versions.get(&selected.name) != Some(&selected.version)
@@ -967,7 +1002,11 @@ impl ExtensionHost {
             loaded_version: running.map(|r| r.manifest.version.to_string()),
             running: running.is_some(),
             locally_disabled,
-            error: state.errors.get(name).cloned(),
+            error: state
+                .errors
+                .get(name)
+                .cloned()
+                .or_else(|| state.knowledge.get(name).and_then(passive::Slot::error)),
         })
     }
 
@@ -976,6 +1015,9 @@ impl ExtensionHost {
         let mut state = self.inner.lock().await;
         for (_, running) in state.running.drain() {
             running.process.stop().await;
+        }
+        for (_, slot) in state.knowledge.drain() {
+            slot.stop().await;
         }
     }
 
@@ -1019,6 +1061,7 @@ impl ExtensionHost {
         if let Some(running) = state.running.remove(name) {
             running.process.stop().await;
         }
+        passive::withdraw(state, name).await;
         persisted
     }
 }
@@ -1091,7 +1134,8 @@ async fn verify_digest(path: &Path, expected: &str) -> Result<()> {
 async fn executable_digest(path: &Path) -> Result<String> {
     let mut file = tokio::fs::File::open(path).await?;
     let mut digest = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
+    // Keep the chunk off the async stack as the verification future nests in installation.
+    let mut buffer = vec![0u8; 64 * 1024];
     let mut total = 0u64;
     loop {
         let length = file.read(&mut buffer).await?;

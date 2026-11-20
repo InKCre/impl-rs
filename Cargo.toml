@@ -9,6 +9,7 @@ members = [
     "extensions/github",
     "extensions/learn-english",
     "extensions/local-files",
+    "extensions/memos",
     "extensions/rss",
     "extensions/telegram",
 ]
@@ -23,7 +24,7 @@ repository = "https://github.com/InKCre/impl-rs"
 
 [workspace.dependencies]
 inkcre-core = { path = "crates/core", version = "0.1.0" }
-inkcre-extension-sdk = { path = "vendor/ext-reg/runtimes/core-rs", version = "0.1.0" }
+inkcre-extension-sdk = { path = "vendor/ext-reg/runtimes/core-rs", version = "0.1.1" }
 async-trait = "0.1"
 axum = "0.8"
 base64 = "0.22"

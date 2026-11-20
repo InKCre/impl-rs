@@ -172,6 +172,12 @@ fn title(kind: &str, value: &Value) -> String {
 struct Bilibili;
 #[async_trait]
 impl Extension for Bilibili {
+    async fn start_knowledge(
+        &mut self,
+        _: inkcre_extension_sdk::KnowledgeStartContext,
+    ) -> std::result::Result<(), RpcError> {
+        Ok(())
+    }
     async fn start(&mut self, _context: inkcre_extension_sdk::StartContext) -> Result<Value> {
         Ok(json!({"started":true}))
     }
@@ -193,6 +199,7 @@ impl Extension for Bilibili {
             config_schema: json!({"type":"object","properties":{},"additionalProperties":false}),
             methods: vec![],
             capabilities: Capabilities {
+                passive_knowledge: true,
                 resolvers: KINDS
                     .iter()
                     .map(|kind| ResolverCapability {
