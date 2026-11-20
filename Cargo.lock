@@ -1605,6 +1605,7 @@ name = "inkcre-app"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "clap",
  "dotenvy",
  "inkcre-core",
@@ -1646,6 +1647,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "inkcre-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "jsonwebtoken",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "inkcre-core"
 version = "0.1.0"
 dependencies = [
@@ -1655,6 +1669,7 @@ dependencies = [
  "chrono-tz",
  "croner",
  "encoding_rs",
+ "futures-util",
  "html2text",
  "image",
  "infer",
@@ -1687,6 +1702,33 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "inkcre-learn-english-extension"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "inkcre-core",
+ "inkcre-extension-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "inkcre-local-files-extension"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "inkcre-core",
+ "inkcre-extension-sdk",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]

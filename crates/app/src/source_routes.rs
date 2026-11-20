@@ -1,7 +1,8 @@
 use axum::{
     Json, Router,
     extract::State,
-    http::StatusCode,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use inkcre_core::{
@@ -13,7 +14,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::{
-    error::{ApiError, ApiJson, ApiPath, ApiQuery, ApiResult},
+    error::{ApiBytes, ApiError, ApiJson, ApiPath, ApiQuery, ApiResult},
     routes::AppState,
 };
 
@@ -27,8 +28,6 @@ pub fn router() -> Router<AppState> {
             get(source_get).patch(source_patch).delete(source_delete),
         )
         .route("/sources/{id}/anchor", post(source_anchor))
-        .route("/sources/{id}/collect", post(source_collect))
-        .route("/sources/{id}/backfill", post(source_backfill))
         .route("/crons", get(crons).post(cron_create))
         .route(
             "/crons/{id}",
@@ -37,6 +36,18 @@ pub fn router() -> Router<AppState> {
         .route("/crons/{id}/run", post(cron_run))
         .route("/crons/{id}/materialize", post(cron_materialize))
         .route("/cron/config", get(cron_config).put(cron_config_set))
+}
+
+pub fn commands(legacy: bool) -> Router<AppState> {
+    if legacy {
+        Router::new()
+            .route("/sources/{id}/collect", post(legacy_collect))
+            .route("/sources/{id}/backfill", post(legacy_backfill))
+    } else {
+        Router::new()
+            .route("/sources/{id}/collect", post(collect))
+            .route("/sources/{id}/backfill", post(backfill))
+    }
 }
 
 fn default_limit() -> i64 {
@@ -147,40 +158,101 @@ fn notify(state: &AppState, job: &Job) {
     }
 }
 
-async fn source_collect(
+async fn legacy_collect(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<i32>,
     ApiJson(input): ApiJson<CommandInput>,
 ) -> ApiResult<(StatusCode, Json<Job>)> {
-    let job = state
-        .core
-        .source_submit(
-            id,
-            SourceCommand::Collect,
-            input.config,
-            input.timeout_seconds,
-        )
-        .await?;
-    notify(&state, &job);
-    Ok((StatusCode::ACCEPTED, Json(job)))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(submit_source(&state, id, SourceCommand::Collect, input).await?),
+    ))
 }
 
-async fn source_backfill(
+async fn legacy_backfill(
     State(state): State<AppState>,
     ApiPath(id): ApiPath<i32>,
     ApiJson(input): ApiJson<CommandInput>,
 ) -> ApiResult<(StatusCode, Json<Job>)> {
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(submit_source(&state, id, SourceCommand::Backfill, input).await?),
+    ))
+}
+
+#[derive(Deserialize)]
+struct CommandQuery {
+    timeout_seconds: Option<i32>,
+}
+
+async fn collect(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<i32>,
+    ApiQuery(query): ApiQuery<CommandQuery>,
+    ApiBytes(bytes): ApiBytes,
+) -> ApiResult<Response> {
+    let config = if bytes.is_empty() {
+        inkcre_core::models::empty_object()
+    } else {
+        serde_json::from_slice(&bytes)
+            .map_err(|_| ApiError::invalid("collect config must be a JSON object"))?
+    };
+    source_command(&state, id, SourceCommand::Collect, config, query).await
+}
+
+async fn backfill(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<i32>,
+    ApiQuery(query): ApiQuery<CommandQuery>,
+    ApiJson(config): ApiJson<Value>,
+) -> ApiResult<Response> {
+    source_command(&state, id, SourceCommand::Backfill, config, query).await
+}
+
+async fn source_command(
+    state: &AppState,
+    id: i32,
+    command: SourceCommand,
+    config: Value,
+    query: CommandQuery,
+) -> ApiResult<Response> {
+    let job = submit_source(
+        state,
+        id,
+        command,
+        CommandInput {
+            config,
+            timeout_seconds: query.timeout_seconds,
+        },
+    )
+    .await
+    .map_err(|error| {
+        if error.status == StatusCode::NOT_IMPLEMENTED {
+            ApiError::invalid("Source type does not support this command")
+        } else {
+            error
+        }
+    })?;
+    Ok((
+        StatusCode::CREATED,
+        [(header::LOCATION, format!("/jobs/{}", job.id))],
+        Json(job),
+    )
+        .into_response())
+}
+
+async fn submit_source(
+    state: &AppState,
+    id: i32,
+    command: SourceCommand,
+    input: CommandInput,
+) -> ApiResult<Job> {
     let job = state
         .core
-        .source_submit(
-            id,
-            SourceCommand::Backfill,
-            input.config,
-            input.timeout_seconds,
-        )
+        .source_submit(id, command, input.config, input.timeout_seconds)
         .await?;
-    notify(&state, &job);
-    Ok((StatusCode::ACCEPTED, Json(job)))
+    notify(state, &job);
+    Ok(job)
 }
 
 #[derive(Deserialize)]

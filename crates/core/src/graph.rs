@@ -8,13 +8,54 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DraftBlock {
+    pub id: i32,
+    #[serde(flatten)]
+    pub block: BlockInput,
+}
+
+impl<'de> Deserialize<'de> for DraftBlock {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> std::result::Result<Self, D::Error> {
+        // Serde does not support deny_unknown_fields together with flatten.
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Input {
+            id: i32,
+            #[serde(default)]
+            storage: Option<i32>,
+            resolver: String,
+            content: String,
+        }
+        let input = Input::deserialize(deserializer)?;
+        Ok(Self {
+            id: input.id,
+            block: BlockInput {
+                storage: input.storage,
+                resolver: input.resolver,
+                content: input.content,
+            },
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftRelation {
+    pub from_: i32,
+    pub to_: i32,
+    pub content: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphInput {
     #[serde(default)]
-    pub blocks: Vec<crate::knowledge::DraftBlock>,
+    pub blocks: Vec<DraftBlock>,
     #[serde(default)]
-    pub relations: Vec<crate::knowledge::DraftRelation>,
+    pub relations: Vec<DraftRelation>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -199,6 +240,26 @@ impl Core {
         };
         Ok(Page { items, next_cursor })
     }
+
+    /// Recent Block records by creation time with an optional exact Resolver filter.
+    pub async fn recently_created_blocks(
+        &self,
+        count: i64,
+        resolver: Option<&str>,
+    ) -> Result<Vec<Block>> {
+        if count < 0 {
+            return Err(Error::InvalidInput("num must be nonnegative".into()));
+        }
+        Ok(sqlx::query_as(&format!(
+            "SELECT {BLOCK_COLUMNS} FROM inkcre.blocks
+             WHERE ($2::text IS NULL OR resolver=$2)
+             ORDER BY created_at DESC, id DESC LIMIT $1"
+        ))
+        .bind(count)
+        .bind(resolver.filter(|value| !value.is_empty()))
+        .fetch_all(self.pool())
+        .await?)
+    }
     pub async fn block_patch(&self, id: i32, patch: BlockPatch) -> Result<Block> {
         if patch.resolver.as_ref().is_some_and(|x| x.trim().is_empty()) {
             return Err(Error::InvalidInput("resolver must not be empty".into()));
@@ -258,6 +319,16 @@ impl Core {
             None
         };
         Ok(Page { items, next_cursor })
+    }
+
+    /// Read all incident Relation records for the ordinary by-block endpoint.
+    pub async fn incident_relations(&self, id: i32) -> Result<Vec<Relation>> {
+        Ok(sqlx::query_as(&format!(
+            "SELECT {RELATION_COLUMNS} FROM inkcre.relations WHERE from_=$1 OR to_=$1 ORDER BY id"
+        ))
+        .bind(id)
+        .fetch_all(self.pool())
+        .await?)
     }
     /// A single incident page preserves persisted direction and exact content.
     pub async fn block_neighborhood(

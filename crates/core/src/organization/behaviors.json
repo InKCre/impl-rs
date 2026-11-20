@@ -1,0 +1,132 @@
+[
+  {
+    "id": "core.organization.behavior.rumination.v1",
+    "description": "Open-ended reconsideration of one information Block that may add a useful graph.",
+    "label": "organization behavior: rumination",
+    "judgment_contract": [],
+    "config_key": "core.organization.rumination",
+    "config_schema": "core.organization.rumination.config.v1",
+    "job_id": "core.organization.rumination.automatic.v1",
+    "job_description": "Automatically reconsider bounded information seeds through rumination.",
+    "request": "ruminate",
+    "signals": "none"
+  },
+  {
+    "id": "core.organization.behavior.supersession.v1",
+    "description": "Relate a semantic successor that fully replaces one predecessor in scope.",
+    "label": "organization behavior: supersession",
+    "judgment_contract": [
+      "Both endpoints are complete addressable information units.",
+      "They continue the same referent and evolvable subject.",
+      "The successor covers the predecessor's complete applicable scope.",
+      "Semantic order, not collection time, identifies successor and predecessor.",
+      "The successor has authority for this subject and scope.",
+      "Continuing to use the predecessor as current would be wrong."
+    ],
+    "config_key": "core.organization.supersession",
+    "config_schema": "core.organization.supersession.config.v1",
+    "job_id": "core.organization.supersession.automatic.v1",
+    "job_description": "Automatically judge bounded scoped-supersession candidates.",
+    "request": "Determine only well-supported scoped supersession relations.",
+    "signals": "edited"
+  },
+  {
+    "id": "core.organization.behavior.evidence-stance.v1",
+    "description": "Relate attributable evidence that supports or challenges an assertion.",
+    "label": "organization behavior: evidence stance",
+    "judgment_contract": [
+      "Evidence and assertion are complete addressable information units.",
+      "The source is evidence and the target is an evaluable assertion.",
+      "Their proposition and applicable scope are comparable.",
+      "The evidence contributes reasons beyond establishing source fidelity; source authority alone is insufficient.",
+      "Evidence provenance and speaker attribution remain recoverable.",
+      "The stance is unambiguously support or challenge for the whole assertion.",
+      "Duplicate, refinement, replacement, or topical proximity alone is insufficient."
+    ],
+    "config_key": "core.organization.evidence_stance",
+    "config_schema": "core.organization.evidence_stance.config.v1",
+    "job_id": "core.organization.evidence-stance.automatic.v1",
+    "job_description": "Automatically judge bounded attributable evidence stances.",
+    "request": "Determine only attributable evidence support or challenge relations.",
+    "signals": "all"
+  },
+  {
+    "id": "core.organization.behavior.refinement.v1",
+    "description": "Relate useful compatible detail that refines but does not replace information.",
+    "label": "organization behavior: refinement",
+    "judgment_contract": [
+      "Both endpoints are complete addressable information units.",
+      "They continue the same referent and evolvable subject.",
+      "The refinement scope equals or is visibly contained by the predecessor scope.",
+      "Their information roles and attribution remain compatible.",
+      "The refinement adds reusable detail, constraints, explanation, or precision.",
+      "The predecessor remains independently safe as a coarser description."
+    ],
+    "config_key": "core.organization.refinement",
+    "config_schema": "core.organization.refinement.config.v1",
+    "job_id": "core.organization.refinement.automatic.v1",
+    "job_description": "Automatically judge bounded non-dominating refinement candidates.",
+    "request": "Determine only useful non-dominating refinement relations.",
+    "signals": "edited"
+  },
+  {
+    "id": "core.organization.behavior.duplicate-assertion.v1",
+    "description": "Relate whole-Block assertions copied from the same provenance occurrence.",
+    "label": "organization behavior: duplicate assertion",
+    "judgment_contract": [
+      "Both Blocks completely and independently address the compared assertion.",
+      "Referent, predicate, polarity, force, units, and material qualifiers match.",
+      "Applicable scope, time, version, environment, and attribution are compatible.",
+      "Both assertions ultimately derive from the same observable provenance occurrence.",
+      "Neither Block adds independent evidence, reasoning, or authoritative decision.",
+      "No material asymmetric information gain is hidden by the relation.",
+      "The relation prevents evidence multiplication or restores useful provenance paths."
+    ],
+    "config_key": "core.organization.duplicate_assertion",
+    "config_schema": "core.organization.duplicate_assertion.config.v1",
+    "job_id": "core.organization.duplicate-assertion.automatic.v1",
+    "job_description": "Automatically judge bounded provenance-aware duplicate assertions.",
+    "request": "Record only whole-Block duplicate assertions from the same provenance occurrence.",
+    "signals": "none"
+  },
+  {
+    "id": "core.organization.behavior.existing-referent-anchoring.v1",
+    "description": "Anchor one source-grounded referring fragment to existing identity-bearing information.",
+    "label": "organization behavior: existing referent anchoring",
+    "judgment_contract": [
+      "The source expression meaningfully denotes a reusable referent.",
+      "Selected text identifies this mention without unrelated material.",
+      "The referent Block already exists and was not created as a temporary label.",
+      "The target contains enough identity to distinguish plausible alternatives.",
+      "Denotation remains continuous across name, time, environment, and scope.",
+      "Plausible competing referents have been considered and excluded.",
+      "The anchor improves cross-source or cross-time use rather than graph density."
+    ],
+    "config_key": "core.organization.existing_referent_anchoring",
+    "config_schema": "core.organization.existing_referent_anchoring.config.v1",
+    "job_id": "core.organization.existing-referent-anchoring.automatic.v1",
+    "job_description": "Automatically anchor bounded mentions to existing referents.",
+    "request": "Anchor only resolved source mentions to existing identity-bearing Blocks.",
+    "signals": "none"
+  },
+  {
+    "id": "core.organization.behavior.synthesis.v1",
+    "description": "Create reusable multi-source information while preserving exact source basis.",
+    "label": "organization behavior: synthesis",
+    "judgment_contract": [
+      "The result is independently useful information, not a list of related sources.",
+      "Every source materially contributes content, attribution, or uncertainty.",
+      "Source disagreements, uncertainty, and speaker attribution remain visible.",
+      "Scopes are compatible or their differences are explicitly preserved.",
+      "Duplicate-connected copies do not multiply independent corroboration.",
+      "No existing synthesis already provides the same reusable distinction.",
+      "Observed past use and recurrence make future reuse plausible."
+    ],
+    "config_key": "core.organization.synthesis",
+    "config_schema": "core.organization.synthesis.config.v1",
+    "job_id": "core.organization.synthesis.automatic.v1",
+    "job_description": "Automatically create bounded provenance-preserving syntheses.",
+    "request": "Create only provenance-preserving, reusable multi-source synthesis.",
+    "signals": "synthesis"
+  }
+]

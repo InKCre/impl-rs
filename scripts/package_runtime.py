@@ -24,10 +24,11 @@ def package(build_dir, output):
     binaries = build_dir or Path(workspace["target_directory"]) / "release"
     app = binaries / ("inkcre" + SUFFIX)
     members = set(workspace["workspace_members"])
+    packages = [package for package in workspace["packages"] if package["id"] in members]
     extensions = [
         (package["metadata"]["inkcre"]["extension"], package)
-        for package in workspace["packages"]
-        if package["id"] in members and package["metadata"]
+        for package in packages
+        if package["metadata"]
         and package["metadata"].get("inkcre", {}).get("extension")
     ]
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -37,6 +38,9 @@ def package(build_dir, output):
         stage = Path(temp) / "runtime"
         stage.mkdir()
         shutil.copy2(app, stage / app.name)
+        if any(package["name"] == "inkcre-cli" for package in packages):
+            cli = binaries / ("inkcre-cli" + SUFFIX)
+            shutil.copy2(cli, stage / cli.name)
         for name, package in sorted(extensions, key=lambda item: item[0]):
             binaries_for_package = [target["name"] for target in package["targets"] if target["kind"] == ["bin"]]
             if len(binaries_for_package) != 1:

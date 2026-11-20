@@ -70,6 +70,7 @@ impl Core {
             .bind(&input.type_).fetch_optional(&mut **tx).await?.ok_or(Error::NotFound("job type"))?;
         crate::models::validate_json(&job_type.parameters_schema, &input.parameters)?;
         crate::source::validate_source_job_in(tx, &input.type_, &input.parameters).await?;
+        crate::sink::validate_job(tx, &input.type_, &input.parameters).await?;
         let timeout = input
             .timeout_seconds
             .unwrap_or(job_type.default_timeout_seconds);

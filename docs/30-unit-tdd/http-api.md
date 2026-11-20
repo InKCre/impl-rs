@@ -1,21 +1,25 @@
 # HTTP API
 
-接入 Rust app 时阅读本文。业务路径可以直接访问，也可以使用 `/api/v1` 前缀，均要求 `Authorization: Bearer <JWT>`。健康检查 `/health/live` 和 `/health/ready` 无需认证。JSON 错误形如 `{"error":{"code":"…","message":"…"}}`，数据库和插件原始错误不会直接返回。下表覆盖当前实现的能力。
+接入 Rust app 时阅读本文。一般业务路径同时支持根路径和 `/api/v1` 前缀，均要求 `Authorization: Bearer <JWT>`。扩展管理的两套路径及 MCP 的凭据单独说明。健康检查 `/health/live` 和 `/health/ready` 无需认证。JSON 错误形如 `{"error":{"code":"…","message":"…"}}`，数据库和插件原始错误不会直接返回。
 
 ## 图数据
 
 | 方法与路径 | 输入与结果 |
 | --- | --- |
 | `GET /blocks?limit=50&cursor=123` | `items/next_cursor`；ID 降序，cursor exclusive |
+| `GET /blocks/recent?num=10&resolver=…` | 按创建时间倒序返回 Block 数组，可按 exact Resolver 过滤 |
 | `POST /blocks` | `{resolver,content,storage?}`，201 返回 Block |
 | `GET/PATCH/DELETE /blocks/{id}` | 读取、部分更新或删除；删除返回 204 |
 | `GET /blocks/{id}/content` | inline 文本或已注册 Storage handler 读取的实际 bytes |
 | `GET /blocks/{id}/relations` | 关联 Relation 分页 |
+| `GET /relations/by_block/{id}` | 关联 Relation 数组，端点为 `from_block_id/to_block_id` |
 | `POST /relations` | `{from_,to_,content}`，201 返回 Relation |
 | `GET/PATCH/DELETE /relations/{id}` | 读取、部分更新或删除 |
 | `GET /relations/{id}/neighborhood` | Relation 和其两个端点组成的闭合图 |
 | `POST /graph/neighborhood` | `{block_id,direction?,contents?,limit?,cursor?}` |
+| `GET /blocks/{id}/neighborhood` | `direction`、可重复的 `contents`、`limit`、`cursor`；返回 `focal_block/graph/next_cursor` |
 | `GET/POST /graph/path` | source、target、direction、contents、max_hops、max_explored_blocks；POST 使用 JSON body |
+| `POST /graph/components` | `{seed_block_ids,contents,max_explored_blocks?,max_explored_relations?}`，返回种子分组、缺失 ID 和闭合证明图 |
 | `POST /graph` | 扁平生产者命令 `{blocks,relations}`，原子保存并返回 `{blocks:[{local_id,id}]}` |
 | `POST /entities/get` | `{entities:[{type,id}],content:"none/raw/hydrated"}`，按输入顺序返回记录或逐项错误 |
 
@@ -93,8 +97,8 @@ worker 默认发现并执行本机有资格领取的 pending 工作；未知或�
 | `GET/POST /sources` | 实例分页，或提交 `{type,nickname?,config?,storage?}`；创建返回 201 |
 | `GET/PATCH/DELETE /sources/{id}` | 读取、更新配置或删除实例；删除返回 204 |
 | `POST /sources/{id}/anchor` | 延迟创建或同步来源锚点，返回 `core.source.v1` Block |
-| `POST /sources/{id}/collect` | `{config?,timeout_seconds?}`，202 返回 `core.source.collect.v1` Job |
-| `POST /sources/{id}/backfill` | 同上，提交 `core.source.backfill.v1`；该类型无 backfill schema 时返回 501 |
+| `POST /sources/{id}/collect` | body 为采集配置对象，缺省 `{}`。可加 `?timeout_seconds=…`，201 返回 `core.source.collect.v1` Job |
+| `POST /sources/{id}/backfill` | body 为回填配置对象，同样支持超时参数。该类型无 backfill schema 时返回 422 |
 | `GET/POST /crons` | 模板分页，或创建 `{schedule,enabled?,job_type,job_parameters?,job_timeout_seconds?}`；创建返回 201 |
 | `GET/PATCH/DELETE /crons/{id}` | 读取、修改或删除模板；删除返回 204 |
 | `POST /crons/{id}/run` | 202 返回独立普通 Job，忽略 enabled，不改变发生进度 |
@@ -102,6 +106,8 @@ worker 默认发现并执行本机有资格领取的 pending 工作；未知或�
 | `GET/PUT /cron/config` | 部署级 `{timezone}`，默认 UTC；写入影响共享 Cron 的时区解释 |
 
 Source PATCH 支持 `nickname/config/storage`，省略保持原值，nickname/storage 显式 null 清空；config 整对象替换且不接受 null。`storage` 必须选择可写类型；state 与 cursor 由实际 Source handler 拥有。删除 Source 配置保留来源锚点与已采集资料。catalog 存在不表示本机具备 Source handler，插件停用也不会删除 catalog。
+
+`/api/v1` 下的 collect 与 backfill 接收 `{config?,timeout_seconds?}`，成功返回 202。该版本的 Source 缺少 backfill 能力时返回 501。
 
 RSS Source ID 为 `extensions.rss.rss.Source`，Atom 为 `extensions.rss.atom.Source`，最小 config 为 `{"feed_url":"https://example.org/feed.xml"}`。需先安装并启用可信的 `inkcre/rss` Rust 分发，本机 worker 才具有对应能力。collect 的 config 可以为空对象；这两个 Source 不支持 backfill。具体业务语义见 [RSS 分发](rss-extension.md)。
 
@@ -130,7 +136,27 @@ Cron 默认 enabled，schedule 使用五段 UNIX 格式、分钟粒度，时区�
 
 模型目录只返回模型元数据。执行使用 [AI SDK](ai-runtime.md)，调用方通过已配置模型选择相应 provider 与 dialect。
 
-## 本机扩展
+## Agent 与 Sink
+
+| 方法与路径 | 输入与结果 |
+| --- | --- |
+| `GET/POST /agents`、`GET/PATCH/DELETE /agents/{id}` | 共享 Agent 定义的查询与变更 |
+| `GET /agent-tools`、`GET /agent-tools/{id}` | 本机 Agent 工具发现与参数 schema |
+| `POST /organization/ruminate` | 在本机执行显式 rumination，使用配置的 Agent |
+| `GET /sink-types`、`GET /sink-types/{id}` | 共享 Sink 类型和配置 schema |
+| `GET/POST /sinks`、`GET/DELETE /sinks/{id}` | 持久 Sink 实例 |
+| `PUT /sinks/{id}/config` | 替换完整配置 |
+| `POST /sinks/{id}/enable`、`POST /sinks/{id}/disable` | 写入当前 Peer 的启用意图 |
+| `POST /sinks/{id}/query` | 启用的 Agent Query Sink 接受 `{query,timeout_seconds?}`，202 返回普通 Job |
+| `POST /sinks/{id}/mcp` | 经 Sink PAT 认证的 MCP JSON-RPC |
+
+运行与配置见 [Agent](agent-runtime.md)、[Organization](organization-runtime.md)、[Sink](sink-runtime.md) 和 [MCP](mcp-runtime.md)。
+
+## 扩展管理
+
+根路径下 `GET /extensions` 返回共享记录分页，`GET /extensions/{namespace}/{name}` 读取单条记录。`POST` 到单条记录的 `/selection` 保存 `{distribution,version}` 的精确选择，`DELETE` 撤销。启用和停用通过同一坐标的 `/enable` 与 `/disable`。这些操作可用 `route_to_peer` 指定执行者。固定本机入口 `POST /extension-management/v2` 接收同一协议的命令，并返回执行 Peer 和扩展状态。
+
+本机旧接口保留在 `/api/v1`。下表中的路径须加该前缀。
 
 | 方法与路径 | 输入与结果 |
 | --- | --- |
@@ -143,4 +169,4 @@ Cron 默认 enabled，schedule 使用五段 UNIX 格式、分钟粒度，时区�
 | `GET/PATCH /extensions/{name}/config` | 明确配置入口；管理列表不包含业务 state |
 | `DELETE /extensions/{name}/participation` | 移除本 Peer 选择，保留部署共享身份与业务资料 |
 
-Extension name 是 `namespace/name`，路径中需要将斜杠编码为 `%2F`。配置更改不自动重启插件。Rust 公共 Registry 安装尚不提供；catalog 来自 `--extension-manifest` / `INKCRE_EXTENSION_MANIFESTS` 指定的本机可信 manifest。启用后按 capability descriptor 注册 typed adapter；停用会撤回本机能力并取消在途调用，普通持久记录仍可读取。构建和摘要安装方式见 [运行说明](../40-deployment/runtime.md#插件生命周期)。
+旧接口的 Extension name 必须将斜杠编码为 `%2F`。其 catalog 来源于 `--extension-manifest` 或 `INKCRE_EXTENSION_MANIFESTS` 指定的本机可信 manifest。根路径的精确选择可从 Registry 获取本平台 Rust 产物。配置更改在下一次启动生效。启用后按 capability descriptor 注册 typed adapter，停用会撤回本机能力并取消在途调用。构建和安装方式见 [运行说明](../40-deployment/runtime.md#插件生命周期)。

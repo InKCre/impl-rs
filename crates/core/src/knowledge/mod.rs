@@ -9,11 +9,12 @@ mod registry;
 mod storage;
 mod types;
 
+pub use crate::graph::{DraftBlock, DraftRelation};
 pub use builtins::{
     JsonResolver, decode_html_bytes, decode_unicode_bytes, detect_media_type, format_label,
     html_text,
 };
-pub use draft::{DraftBlock, DraftRelation, GraphDraft, PersistedDraft};
+pub use draft::{GraphDraft, PersistedDraft};
 pub use error::{Error, Result};
 pub use registry::Registry;
 pub use storage::{HttpStorage, HttpStorageConfig, PostgreSqlStorage};

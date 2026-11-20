@@ -143,7 +143,7 @@ fn invalid_response() -> ApiError {
     )
 }
 
-fn delegate_error(error: DelegationError) -> ApiError {
+pub(crate) fn delegate_error(error: DelegationError) -> ApiError {
     match error {
         DelegationError::Unavailable => ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,

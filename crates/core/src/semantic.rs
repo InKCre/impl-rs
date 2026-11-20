@@ -325,7 +325,11 @@ impl Core {
                         let value: Value = row.try_get("entity")?;
                         self.relation_projection(&value)
                             .await
-                            .map_err(|_| "projection_failed")
+                            .map_err(|error| match error {
+                                crate::knowledge::Error::UnknownResolver(_) => "unknown_resolver",
+                                crate::knowledge::Error::Unsupported(_) => "unsupported_text",
+                                _ => "projection_failed",
+                            })
                     };
                     match projection {
                         Ok(Some(text)) if !text.trim().is_empty() => {
@@ -383,7 +387,7 @@ impl Core {
         .await?;
         Ok(report)
     }
-    async fn relation_projection(&self, value: &Value) -> Result<Option<String>> {
+    async fn relation_projection(&self, value: &Value) -> crate::knowledge::Result<Option<String>> {
         let Some(from) = value["from_"].as_i64() else {
             return Ok(None);
         };
@@ -394,16 +398,8 @@ impl Core {
         if content.trim().is_empty() {
             return Ok(None);
         }
-        let a = self
-            .knowledge()
-            .label(from as i32, false)
-            .await
-            .map_err(|_| Error::Unavailable("relation subject label"))?;
-        let b = self
-            .knowledge()
-            .label(to as i32, false)
-            .await
-            .map_err(|_| Error::Unavailable("relation value label"))?;
+        let a = self.knowledge().label(from as i32, false).await?;
+        let b = self.knowledge().label(to as i32, false).await?;
         Ok((!a.trim().is_empty() && !b.trim().is_empty())
             .then(|| format!("subject:\n{a}\nproperty:\n{content}\nvalue:\n{b}")))
     }

@@ -14,20 +14,20 @@ PostgreSQL 的已准入 `inkcre` schema 既承载持久信息，也承载部署�
 
 core 提供图数据 CRUD、存储字节、有界图导航、Peer 身份与租约、知识能力 registry、graph draft、Job worker、Source 和 Cron。Job 提交依据共享 catalog 的参数 schema 准入，不要求提交者具备本地执行能力；本机 handler 的资格判断与原子领取分别管理。持久时间使用数据库时钟，不另造 worker ownership 或 heartbeat 字段。
 
-app 以 `/api/v1` 暴露这些能力，接口参数见 [HTTP API](http-api.md)。当前已移植既有 RSS/Atom 扩展；这不代表完整复刻 Python 的业务能力或全部 API。
+app 的 HTTP 入口及带版本前缀的兼容接口见 [HTTP API](http-api.md)。
 
 | 能力 | 当前实现边界 |
 | --- | --- |
-| 知识持久化 | 原始 Block/Relation CRUD、组合事务、闭合图邻域、有界最短路径、Resolver drafting 与带局部 ID 映射的事务提交 |
+| 知识持久化 | 原始 Block/Relation CRUD、组合事务、闭合图邻域、有界最短路径和连通分量、Resolver drafting 与带局部 ID 映射的事务提交 |
 | Storage | 可注册只读/可写 handler；PostgreSQL bytes C/R/U/D 与 HTTP(S) 有界读取；外部 handler 的副作用不具备跨进程 SQL 原子性 |
-| 知识解释 | exact Resolver registry、typed read、solved/text/label、inline/Storage hydration；内建 text、Markdown、HTML、file 与 Source anchor；尚无 PDF、图像或音视频解码器 |
+| 知识解释 | exact Resolver registry、typed read、inline/Storage hydration。内建 text、Markdown、HTML、file、Source anchor 及基础图像和 PDF 读取 |
 | Peer | 稳定身份、保留用户配置的注册、租约与能力快照，支持显式 Peer 的检索委派并保留未知执行结果 |
 | Job | catalog/schema 准入、handler registry、资格判断、pending 发现、原子 claim、并发预算、持久 checkpoint、执行中取消与终态收尾；不自动重试 |
 | 定时与采集 | Source catalog/config/state/anchor、collect/backfill 框架、五段 Cron 与时区；RSS/Atom 实现真实采集、正文和附件，RSS backfill 明确不支持 |
 | 检索 | PostgreSQL 词法投影和 profile 向量空间，维护和重建 Job，应用方可分别获得 hybrid 的两组排名 |
-| 第一方扩展 | RSS/Atom 采集，以及 Capture 和 Bilibili 持久图读取 |
-| AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行。Organization、Agent、Sink 与对应工具链待接入 |
-| 运维与接口 | stderr/HTTP tracing、serve/db-check/token；完整观测查询与业务 CLI 尚未实现 |
+| 第一方扩展 | RSS/Atom 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取 |
+| AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行、Agent 定义和工具调用、Organization 图写入和显式 rumination、Agent Query 与 MCP Sink |
+| 运维与接口 | stderr/HTTP tracing、serve/db-check/token、独立 `inkcre-cli` 与安装目录打包。可观测性查询和完整 CLI 对等仍在推进 |
 
 知识与 Storage 的事务、读取和缓存边界见 [知识运行时](knowledge-runtime.md)；Job 执行与 Cron 发生见 [任务运行时](job-runtime.md)；RSS 的 canonical 图、游标与 materialization 见 [RSS 分发](rss-extension.md)。扩展通用方法不会自动成为业务 handler，必须通过 SDK capability descriptor 声明并注册 typed adapter。
 
@@ -43,7 +43,7 @@ Rust worker 取消执行并等待本机收尾后写终态，但进程崩溃或�
 
 `rust_stdio` 分发是本机可信 executable。宿主通过版本化 stdio JSON 消息初始化、启动、调用和关闭插件，stdout 只承载协议。独立进程允许单一 app binary 动态增加插件，避免将 Rust 编译器 ABI 当作长期兼容协议；代价是进程开销和显式序列化。
 
-扩展 SDK 在 `ext-reg/runtimes/core-rs` 独立维护，本仓通过固定版本子模块消费，避免复制协议类型。宿主从启动配置明确允许的本地 manifest 安装精确产物，校验身份、semver、协议、SDK 条件及摘要。HTTP 请求不能引入任意本机 executable 路径；Rust 公共 Registry 上传与下载尚未实现。
+扩展 SDK 在 `ext-reg/runtimes/core-rs` 独立维护，本仓通过固定版本子模块消费。宿主可从启动配置允许的本地 manifest 安装精确产物，也可从部署配置指定的 Registry 获取已发布的精确 Rust 产物。两条路径校验身份、SemVer、协议、SDK 条件及摘要，最终保存同一种本机选择。
 
 保存 selection/enabled 后应用运行变化；插件启动返回后再次确认精确选择与启用意图。停止 Peer 或插件撤回本机运行能力并收尾在途任务，持久配置、业务 state 和已保存资料继续存在。插件 abort/timeout 使实际子进程被回收；仍被选择且 enabled 的精确分发可由 reconcile 恢复，原 Job 不重放。
 

@@ -33,6 +33,8 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub core: Core,
+    pub source_registry: inkcre_core::source::SourceRegistry,
+    pub agents: inkcre_core::agent::Runtime,
     pub configs: inkcre_core::deployment_config::ConfigRegistry,
     pub host: ExtensionHost,
     pub peer_id: Uuid,
@@ -47,13 +49,16 @@ pub fn router(state: AppState) -> Router {
     let protected = Router::new()
         .route("/self", get(self_info))
         .route("/blocks", get(blocks).post(block_create))
+        .route("/blocks/recent", get(recently_created_blocks))
         .route(
             "/blocks/{id}",
             get(block_get).patch(block_patch).delete(block_delete),
         )
         .route("/blocks/{id}/relations", get(block_relations))
+        .route("/blocks/{id}/neighborhood", get(block_neighborhood))
         .route("/blocks/{id}/content", get(block_content))
         .route("/relations", post(relation_create))
+        .route("/relations/by_block/{id}", get(relations_by_block))
         .route(
             "/relations/{id}",
             get(relation_get)
@@ -78,6 +83,25 @@ pub fn router(state: AppState) -> Router {
         .route("/jobs/{id}/abort", post(job_abort))
         .route("/peers", get(peers))
         .route("/peers/{id}", get(peer_get).delete(peer_delete))
+        .merge(crate::agent_routes::router())
+        .merge(crate::ai_routes::router())
+        .merge(crate::component_routes::router())
+        .merge(crate::config_routes::router())
+        .merge(crate::entity_routes::router())
+        .merge(crate::knowledge_routes::router())
+        .merge(crate::lexical_routes::router())
+        .merge(crate::organization_routes::router())
+        .merge(crate::peer_routes::router())
+        .merge(crate::retrieval_routes::router())
+        .merge(crate::semantic_routes::router())
+        .merge(crate::sink_routes::router())
+        .merge(crate::source_routes::router())
+        .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
+    let mcp = crate::mcp::router();
+    let canonical = crate::extension_v2_routes::router()
+        .merge(crate::source_routes::commands(false))
+        .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
+    let legacy = Router::new()
         .route("/extensions", get(extensions))
         .route("/extensions/catalog", get(extension_catalog))
         .route("/extensions/install", post(extension_install))
@@ -92,24 +116,17 @@ pub fn router(state: AppState) -> Router {
             "/extensions/{name}/participation",
             axum::routing::delete(extension_unselect),
         )
-        .merge(crate::ai_routes::router())
-        .merge(crate::config_routes::router())
-        .merge(crate::entity_routes::router())
-        .merge(crate::knowledge_routes::router())
-        .merge(crate::lexical_routes::router())
-        .merge(crate::peer_routes::router())
-        .merge(crate::retrieval_routes::router())
-        .merge(crate::semantic_routes::router())
-        .merge(crate::source_routes::router())
+        .merge(crate::source_routes::commands(true))
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
-        .route(
-            "/health/live",
-            get(|| async { Json(json!({"status":"live"})) }),
-        )
+        .route("/health/live", get(live))
         .route("/health/ready", get(ready))
+        .route("/livez", get(live))
+        .route("/readyz", get(ready))
         .merge(protected.clone())
-        .nest("/api/v1", protected)
+        .merge(mcp.clone())
+        .merge(canonical)
+        .nest("/api/v1", protected.merge(mcp).merge(legacy))
         .fallback(|| async { ApiError::not_found("route not found") })
         .method_not_allowed_fallback(|| async {
             ApiError::new(
@@ -125,6 +142,10 @@ pub fn router(state: AppState) -> Router {
         ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+async fn live() -> Json<Value> {
+    Json(json!({"status":"live"}))
 }
 
 async fn authenticate(State(state): State<AppState>, request: Request, next: Next) -> Response {
@@ -199,6 +220,24 @@ async fn blocks(
     ))
 }
 
+#[derive(Deserialize)]
+struct RecentBlocksQuery {
+    num: Option<i64>,
+    resolver: Option<String>,
+}
+
+async fn recently_created_blocks(
+    State(state): State<AppState>,
+    ApiQuery(query): ApiQuery<RecentBlocksQuery>,
+) -> ApiResult<Json<Vec<Block>>> {
+    Ok(Json(
+        state
+            .core
+            .recently_created_blocks(query.num.unwrap_or(10), query.resolver.as_deref())
+            .await?,
+    ))
+}
+
 async fn block_create(
     State(state): State<AppState>,
     ApiJson(input): ApiJson<BlockInput>,
@@ -251,6 +290,22 @@ async fn block_relations(
             .relations_for_block(id, query.limit, query.cursor)
             .await?,
     ))
+}
+
+async fn relations_by_block(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<i32>,
+) -> ApiResult<Json<Vec<Value>>> {
+    Ok(Json(canonical_relations(
+        state.core.incident_relations(id).await?,
+    )))
+}
+
+pub(crate) fn canonical_relations(relations: Vec<Relation>) -> Vec<Value> {
+    relations
+        .into_iter()
+        .map(|relation| crate::entity_routes::relation_record(json!(relation)))
+        .collect()
 }
 
 async fn relation_create(
@@ -465,7 +520,7 @@ async fn extension_patch_config(
     ))
 }
 
-fn extension_error(error: inkcre_core::extension::Error) -> ApiError {
+pub(crate) fn extension_error(error: inkcre_core::extension::Error) -> ApiError {
     // 插件可能把凭据放入错误文本；HTTP 保持固定错误，不能转发原始子进程输出。
     use inkcre_core::extension::Error;
     let (status, code, message) = match error {
@@ -519,6 +574,42 @@ fn default_direction() -> inkcre_core::Direction {
     inkcre_core::Direction::Both
 }
 
+async fn block_neighborhood(
+    State(state): State<AppState>,
+    ApiPath(id): ApiPath<i32>,
+    ApiQuery(query): ApiQuery<Vec<(String, String)>>,
+) -> ApiResult<Json<Value>> {
+    let mut direction = inkcre_core::Direction::Both;
+    let mut limit = 20;
+    let mut cursor = None;
+    let mut contents = Vec::new();
+    let invalid = || ApiError::invalid("invalid graph neighborhood query");
+    for (key, value) in query {
+        match key.as_str() {
+            "direction" => {
+                direction = serde_json::from_value(Value::String(value)).map_err(|_| invalid())?
+            }
+            "limit" => limit = value.parse().map_err(|_| invalid())?,
+            "cursor" => cursor = Some(value.parse().map_err(|_| invalid())?),
+            "contents" => contents.push(value),
+            _ => (),
+        }
+    }
+    if !(1..=100).contains(&limit) {
+        return Err(invalid());
+    }
+    let page = state
+        .core
+        .block_neighborhood(id, direction, &contents, limit, cursor)
+        .await?
+        .ok_or_else(|| ApiError::not_found("block not found"))?;
+    Ok(Json(
+        json!({"focal_block":id,"next_cursor":page.next_cursor,"graph":{
+            "blocks":page.blocks,"relations":canonical_relations(page.relations)
+        }}),
+    ))
+}
+
 async fn graph_neighborhood(
     State(state): State<AppState>,
     ApiJson(input): ApiJson<NeighborhoodInput>,
@@ -568,7 +659,9 @@ struct PathQuery {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PathInput {
+    #[serde(alias = "from_block_id")]
     source: i32,
+    #[serde(alias = "to_block_id")]
     target: i32,
     #[serde(default = "default_direction")]
     direction: inkcre_core::Direction,

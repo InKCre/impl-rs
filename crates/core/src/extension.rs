@@ -34,6 +34,8 @@ use crate::{
 };
 
 mod adapters;
+mod registry;
+pub use registry::register_registry_config;
 
 const CALL_TIMEOUT: Duration = Duration::from_secs(20);
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -450,6 +452,17 @@ impl ExtensionHost {
         expected_name: &str,
         expected_version: &str,
     ) -> Result<ExtensionStatus> {
+        self.install_from(manifest_path, expected_name, expected_version, false)
+            .await
+    }
+
+    async fn install_from(
+        &self,
+        manifest_path: PathBuf,
+        expected_name: &str,
+        expected_version: &str,
+        from_registry: bool,
+    ) -> Result<ExtensionStatus> {
         let mut state = self.inner.lock().await;
         let bytes = read_bounded(&manifest_path, MAX_MANIFEST_BYTES).await?;
         let mut manifest: Manifest = serde_json::from_slice(&bytes)?;
@@ -486,7 +499,10 @@ impl ExtensionHost {
             let installed = self
                 .read_installed(&manifest.name, &manifest.version.to_string())
                 .await?;
-            if installed != manifest {
+            if installed != manifest
+                || tokio::fs::try_exists(destination.join(registry::ORIGIN_MARKER)).await?
+                    != from_registry
+            {
                 return Err(Error::Conflict("已安装坐标不可覆盖；请使用新版本".into()));
             }
         } else {
@@ -507,6 +523,9 @@ impl ExtensionHost {
                     serde_json::to_vec_pretty(&manifest)?,
                 )
                 .await?;
+                if from_registry {
+                    tokio::fs::write(temporary.join(registry::ORIGIN_MARKER), b"").await?;
+                }
                 tokio::fs::create_dir_all(
                     destination
                         .parent()
@@ -601,6 +620,14 @@ impl ExtensionHost {
             state.running.remove(name);
         }
         let manifest = self.read_installed(name, &selected.version).await?;
+        if tokio::fs::try_exists(
+            self.installed_dir(name, &selected.version)?
+                .join(registry::ORIGIN_MARKER),
+        )
+        .await?
+        {
+            self.verify_registry_admission(&manifest).await?;
+        }
         let process = Arc::new(
             Process::spawn(
                 &self

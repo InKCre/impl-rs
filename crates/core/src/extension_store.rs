@@ -77,7 +77,7 @@ impl Core {
     }
     /// Structural patch only. Use `extension_patch_config_for_peer` for exact-schema admission.
     pub async fn extension_patch_config(&self, name: &str, patch: &Value) -> Result<Extension> {
-        self.patch_config(name, None, patch).await
+        self.write_extension_config(name, None, patch, false).await
     }
     /// Validate against this Peer's exact selected Distribution; never merge schemas.
     pub async fn extension_patch_config_for_peer(
@@ -86,13 +86,26 @@ impl Core {
         peer_id: Uuid,
         patch: &Value,
     ) -> Result<Extension> {
-        self.patch_config(name, Some(peer_id), patch).await
+        self.write_extension_config(name, Some(peer_id), patch, false)
+            .await
     }
-    async fn patch_config(
+
+    pub async fn extension_replace_config_for_peer(
+        &self,
+        name: &str,
+        peer_id: Uuid,
+        config: &Value,
+    ) -> Result<Extension> {
+        self.write_extension_config(name, Some(peer_id), config, true)
+            .await
+    }
+
+    async fn write_extension_config(
         &self,
         name: &str,
         peer_id: Option<Uuid>,
         patch: &Value,
+        replace: bool,
     ) -> Result<Extension> {
         let patch = patch.as_object().ok_or_else(|| {
             Error::InvalidInput("extension config patch must be an object".into())
@@ -109,6 +122,9 @@ impl Core {
         let config = extension.config.as_object_mut().ok_or_else(|| {
             Error::InvalidInput("persisted extension config is not an object".into())
         })?;
+        if replace {
+            config.clear();
+        }
         config.extend(patch.clone());
         if let Some(peer_id) = peer_id {
             let selected:Participation=sqlx::query_as("SELECT name,peer_id,distribution,version,enabled,config_schema FROM inkcre.extension_peer_participations WHERE name=$1 AND peer_id=$2 FOR SHARE")

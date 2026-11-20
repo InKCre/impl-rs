@@ -2,9 +2,12 @@
 members = [
     "crates/core",
     "crates/app",
+    "crates/cli",
     "examples/note-extension",
     "extensions/bilibili",
     "extensions/capture",
+    "extensions/learn-english",
+    "extensions/local-files",
     "extensions/rss",
 ]
 exclude = ["vendor/ext-reg/runtimes/core-rs"]

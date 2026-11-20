@@ -23,6 +23,7 @@ pub(crate) fn resolvers() -> Vec<Arc<dyn Resolver>> {
         Arc::new(crate::source::SourceAnchorResolver),
     ];
     resolvers.extend(super::media::resolvers());
+    resolvers.extend(crate::organization::resolvers());
     resolvers
 }
 

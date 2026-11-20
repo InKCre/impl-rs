@@ -1,0 +1,14 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "max_seeds": {
+      "default": 10,
+      "maximum": 100,
+      "minimum": 3,
+      "title": "Max Seeds",
+      "type": "integer"
+    }
+  },
+  "title": "AutomaticOrganizationJobParameters",
+  "type": "object"
+}

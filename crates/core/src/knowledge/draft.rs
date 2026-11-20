@@ -1,49 +1,7 @@
-use super::{Error, Knowledge, Result};
-use crate::BlockInput;
+use super::{DraftBlock, DraftRelation, Error, Knowledge, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::collections::{BTreeMap, BTreeSet};
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DraftBlock {
-    pub id: i32,
-    #[serde(flatten)]
-    pub block: BlockInput,
-}
-
-impl<'de> Deserialize<'de> for DraftBlock {
-    fn deserialize<D: serde::Deserializer<'de>>(
-        deserializer: D,
-    ) -> std::result::Result<Self, D::Error> {
-        // Serde does not support deny_unknown_fields together with flatten.
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Input {
-            id: i32,
-            #[serde(default)]
-            storage: Option<i32>,
-            resolver: String,
-            content: String,
-        }
-        let input = Input::deserialize(deserializer)?;
-        Ok(Self {
-            id: input.id,
-            block: BlockInput {
-                storage: input.storage,
-                resolver: input.resolver,
-                content: input.content,
-            },
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DraftRelation {
-    pub from_: i32,
-    pub to_: i32,
-    pub content: String,
-}
 
 /// A rooted authoring command, distinct from persisted GraphModel reads.
 #[derive(Debug, Clone, Serialize, Deserialize)]

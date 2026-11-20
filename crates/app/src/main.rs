@@ -1,15 +1,21 @@
+mod agent_routes;
 mod ai_routes;
 mod auth;
+mod component_routes;
 mod config;
 mod config_routes;
 mod entity_routes;
 mod error;
+mod extension_v2_routes;
 mod knowledge_routes;
 mod lexical_routes;
+mod mcp;
+mod organization_routes;
 mod peer_routes;
 mod retrieval_routes;
 mod routes;
 mod semantic_routes;
+mod sink_routes;
 mod source_routes;
 
 use std::{
@@ -103,12 +109,28 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
     let sources = SourceRuntime::new(core.clone());
+    let source_registry = sources.registry().clone();
+    let mut agents = inkcre_core::agent::Runtime::new(core.clone());
+    inkcre_core::agent::register_builtin_tools(&mut agents, core.clone())
+        .map_err(|error| error.to_string())?;
+    inkcre_core::organization::register_tools(&mut agents, &core)
+        .map_err(|error| error.to_string())?;
+    inkcre_core::sink::register_tools(&mut agents).map_err(|error| error.to_string())?;
+    core.publish_sink_types()
+        .await
+        .map_err(|error| error.to_string())?;
     let jobs = JobRegistry::new();
+    jobs.register(Arc::new(inkcre_core::sink::AgentQueryHandler {
+        agents: agents.clone(),
+        peer: peer_id,
+    }))
+    .map_err(|error| error.to_string())?;
     for handler in sources
         .job_handlers()
         .into_iter()
         .chain(inkcre_core::lexical::job_handlers())
         .chain(inkcre_core::semantic::job_handlers())
+        .chain(inkcre_core::organization::job_handlers(agents.clone()))
     {
         jobs.register(handler).map_err(|error| error.to_string())?;
     }
@@ -152,7 +174,17 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
     )
     .await
     .map_err(|error| error.to_string())?;
-    let inbounds = retrieval_routes::inbounds();
+    let mut inbounds = retrieval_routes::inbounds();
+    inbounds.push(inkcre_core::peer::HttpCapability {
+        id: extension_v2_routes::CAPABILITY.into(),
+        method: "POST".into(),
+        path: extension_v2_routes::INBOUND.into(),
+    });
+    inbounds.push(inkcre_core::peer::HttpCapability {
+        id: inkcre_core::organization::RUMINATION_CAPABILITY.into(),
+        method: "POST".into(),
+        path: "/organization/ruminate".into(),
+    });
     core.peer_publish_http(peer_id, &inbounds)
         .await
         .map_err(|error| error.to_string())?;
@@ -253,9 +285,15 @@ async fn serve(args: ServeArgs) -> Result<(), String> {
             }
         );
     });
+    let mut configs = inkcre_core::deployment_config::ConfigRegistry::default();
+    inkcre_core::extension::register_registry_config(&mut configs)
+        .map_err(|error| error.to_string())?;
+    inkcre_core::organization::register_configs(&mut configs).map_err(|error| error.to_string())?;
     let state = routes::AppState {
         core: core.clone(),
-        configs: inkcre_core::deployment_config::ConfigRegistry::default(),
+        source_registry,
+        agents,
+        configs,
         host: host.clone(),
         peer_id,
         secret: Arc::from(args.jwt_secret),

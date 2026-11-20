@@ -11,13 +11,18 @@ pub mod models;
 pub mod peer;
 mod storage;
 
+pub mod agent;
 pub mod ai;
 pub mod cron;
 pub mod deployment_config;
+pub mod discovery;
 pub mod extension;
+pub mod graph_components;
 pub mod lexical;
+pub mod organization;
 pub mod retrieval;
 pub mod semantic;
+pub mod sink;
 pub mod source;
 pub mod worker;
 

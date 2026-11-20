@@ -1,0 +1,12 @@
+{
+  "get_draft_graph_schema": "Describe graph-drafting inputs for selected Resolver types.",
+  "draft_graph": "Draft one rooted GraphForm through an exact Resolver without persistence.",
+  "submit_graph": "Persist one complete GraphForm and return local-to-persisted Block IDs.",
+  "record_supersession": "Record 'supersedes': the successor is authorized to replace the predecessor across its entire scope on the same subject.",
+  "record_refinement": "Record 'refines': new compatible detail at equal or narrower scope on the same subject, not mere extraction or rewording. The predecessor remains independently usable as a coarser description.",
+  "record_evidence_stance": "Record attributable evidence supporting or challenging a whole assertion in comparable scope, without declaring it true or false. Merely establishing that derived content faithfully restates its source is not evidence stance, regardless of source authority. Shared provenance is allowed when observation or reasoning contributes reasons beyond restatement.",
+  "create_synthesis": "Create reusable multi-source information preserving provenance, disagreement, uncertainty and speaker attribution; copies do not multiply corroboration.",
+  "anchor_existing_referent": "Link a source's referring fragment to an existing identity-bearing referent, without creating a new referent.",
+  "record_duplicate_assertion": "Record 'duplicates assertion': whole assertions from the same provenance occurrence with no independent evidence, reasoning, decision or material gain; matching words alone are insufficient.",
+  "record_organization_candidate": "Mark an organization candidate without executing the behavior."
+}

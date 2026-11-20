@@ -57,7 +57,7 @@ HTTP 请求默认有 30 秒预算，业务请求体上限为 8 MiB。Source/Job 
 
 本地开发者可用 `inkcre extension-manifest --name <namespace/name> --version <semver> <executable>` 生成 manifest，并把输出存到 executable 同一目录。命令使用宿主安装时的同一摘要和大小校验。
 
-构建并整理当前平台的安装目录时，运行 `cargo build --release --locked --workspace --bins`，然后运行 `python3 scripts/package_runtime.py .runtime/staged`。脚本根据 workspace 的扩展 metadata 整理 app、扩展可执行文件和对应 manifest，并在 `source.json` 记录源码及 SDK 提交。部署者将所需扩展 manifest 路径加入启动配置。
+构建并整理当前平台的安装目录时，运行 `cargo build --release --locked --workspace --bins`，然后运行 `python3 scripts/package_runtime.py .runtime/staged`。目录包含 HTTP app、`inkcre-cli`、扩展可执行文件及对应 manifest。`source.json` 记录打包时的源码和 SDK checkout。部署者将所需扩展 manifest 路径加入启动配置。
 
 enable 保存意图后启动插件，initialize 获得该精确分发的 config schema 和 typed capability descriptor，start 完成后注册本机 Resolver、Storage、Source 或 Job adapter，并复核选择。共享 catalog 中有类型不代表当前 Peer 已加载 handler。配置更新使用当前 Peer 精确 schema，不合并其他分发 schema；运行实例通过停用再启用读取新配置。disable 撤回 adapter、取消在途调用并停止实际子进程；数据库失败时本机停用状态保留，通过 `locally_disabled` 区分尚未同步的共享 enabled。周期 reconcile 处理其他 Peer 修改的启用、移除或版本选择。
 
@@ -99,4 +99,4 @@ python3 scripts/acceptance.py --config-json /私密目录/native.json \
 
 此阶段没有自动化测试套件。`bash scripts/check.sh` 执行格式、编译、Clippy 和 rustdoc。静态检查通过不能代替真实数据库与插件验收。
 
-知识读取的语义和事务边界见 [知识运行时](../30-unit-tdd/knowledge-runtime.md)。Rust Registry 远端发布/下载、AI/Organization/Agent/Sink、检索与其他第一方扩展分发尚未包含。当前 `/api/v1` 不能直接替换依赖 Python 完整 API 的消费者。
+知识读取的语义和事务边界见 [知识运行时](../30-unit-tdd/knowledge-runtime.md)。当前能力及 HTTP 兼容范围见 [内部设计](../30-unit-tdd/architecture.md) 和 [HTTP API](../30-unit-tdd/http-api.md)。Registry 下载要求所选服务提供 Rust 分发和本平台已发布产物，本机已有精确选择启动前会重新读取其状态。已经选择的 yanked 版本可以恢复，blocked 会阻止启动。
