@@ -19,7 +19,7 @@ pub const SOURCE_COLLECT_JOB_TYPE: &str = "core.source.collect.v1";
 pub const SOURCE_BACKFILL_JOB_TYPE: &str = "core.source.backfill.v1";
 pub const SOURCE_RESOLVER_ID: &str = "core.source.v1";
 
-#[derive(Clone, Debug, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Clone, Debug, Serialize, Deserialize, FromRow)]
 pub struct SourceType {
     pub id: String,
     pub description: Option<String>,
@@ -28,7 +28,7 @@ pub struct SourceType {
     pub backfill_config_schema: Option<Value>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Clone, Debug, Serialize, Deserialize, FromRow)]
 pub struct Source {
     pub id: i32,
     #[serde(rename = "type")]

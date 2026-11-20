@@ -7,6 +7,8 @@ use std::sync::OnceLock;
 struct Document {
     paths: Map<String, Value>,
     generator: SchemaGenerator,
+    responses: SchemaGenerator,
+    response_components: Map<String, Value>,
 }
 
 impl Document {
@@ -15,7 +17,9 @@ impl Document {
         settings.definitions_path = "/components/schemas".into();
         Self {
             paths: Map::new(),
-            generator: settings.into_generator(),
+            generator: settings.clone().into_generator(),
+            responses: settings.for_serialize().into_generator(),
+            response_components: Map::new(),
         }
     }
 
@@ -92,13 +96,64 @@ impl Document {
         });
     }
 
+    fn output<T: JsonSchema>(&mut self) -> Value {
+        let mut schema: Value = self.responses.subschema_for::<T>().into();
+        response_refs(&mut schema);
+        schema
+    }
+    fn response(&mut self, path: &str, method: &str, status: u16, schema: Value) {
+        let response = &mut self.paths[path][method]["responses"][status.to_string()];
+        response
+            .as_object_mut()
+            .expect("registered response")
+            .remove("x-inkcre-dynamic-json");
+        response["content"] = json!({"application/json":{"schema":schema}});
+    }
+    fn typed<T: JsonSchema>(&mut self, path: &str, method: &str, status: u16) {
+        let schema = self.output::<T>();
+        self.response(path, method, status, schema);
+    }
+    fn named_page<T: JsonSchema>(&mut self, path: &str, name: &str, cursor: Value) {
+        let row = self.output::<T>();
+        self.response(path,"get",200,json!({"type":"object","required":[name,"next_cursor"],"properties":{name:{"type":"array","items":row},"next_cursor":nullable(cursor)}}));
+    }
+    fn relation(&mut self) -> Value {
+        // entity_routes::relation_record is an explicit REST field projection of
+        // the actual serialized Relation, not a separately maintained DTO.
+        let mut schema: Value = inkcre_core::Relation::json_schema(&mut self.responses).into();
+        for (from, to) in [("from_", "from_block_id"), ("to_", "to_block_id")] {
+            if let Some(properties) = schema["properties"].as_object_mut()
+                && let Some(field) = properties.remove(from)
+            {
+                properties.insert(to.into(), field);
+            }
+            if let Some(required) = schema["required"].as_array_mut() {
+                for name in required {
+                    if name.as_str() == Some(from) {
+                        *name = json!(to);
+                    }
+                }
+            }
+        }
+        response_refs(&mut schema);
+        self.response_components
+            .insert("ResponseCanonicalRelation".into(), schema);
+        json!({"$ref":"#/components/schemas/ResponseCanonicalRelation"})
+    }
+
     fn finish(mut self) -> Value {
+        let mut schemas = self.generator.take_definitions(true);
+        for (name, mut schema) in self.responses.take_definitions(true) {
+            response_refs(&mut schema);
+            schemas.insert(format!("Response{name}"), schema);
+        }
+        schemas.extend(self.response_components);
         json!({
             "openapi":"3.1.0",
             "info":{"title":"InKCre Rust API","version":env!("CARGO_PKG_VERSION")},
             "paths":self.paths,
             "components":{
-                "schemas":self.generator.take_definitions(true),
+                "schemas":schemas,
                 "securitySchemes":{"peerJwt":{"type":"http","scheme":"bearer","bearerFormat":"JWT"}}
             }
         })
@@ -264,7 +319,9 @@ fn build() -> Value {
     ] {
         doc.location(path, status);
     }
+    observation_operations(&mut doc);
     queries(&mut doc);
+    responses(&mut doc);
     doc.finish()
 }
 
@@ -387,4 +444,171 @@ fn queries(doc: &mut Document) {
 pub async fn document() -> Json<Value> {
     static DOCUMENT: OnceLock<Value> = OnceLock::new();
     Json(DOCUMENT.get_or_init(build).clone())
+}
+
+fn response_refs(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            if let Some(reference) = fields.get_mut("$ref")
+                && let Some(name) = reference
+                    .as_str()
+                    .and_then(|s| s.strip_prefix("#/components/schemas/"))
+            {
+                *reference = json!(format!("#/components/schemas/Response{name}"));
+            }
+            for (key, child) in fields {
+                if key != "$ref" {
+                    response_refs(child);
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                response_refs(item)
+            }
+        }
+        _ => {}
+    }
+}
+fn tagged_record(mut schema: Value, kind: &str) -> Value {
+    // Canonical PATCH handlers append the entity discriminator to their record.
+    schema["properties"]["type"] = json!({"const":kind,"type":"string"});
+    if let Some(required) = schema["required"].as_array_mut() {
+        required.push(json!("type"));
+    }
+    schema
+}
+fn responses(doc: &mut Document) {
+    use inkcre_core::{self as core, agent, cron, source};
+    // Remaining controllers intentionally return serde_json::Value (discovery,
+    // providers, graph projections). Describe their actual dynamic JSON contract,
+    // rather than pretending they serialize one of the central record DTOs.
+    for methods in doc.paths.values_mut() {
+        for operation in methods.as_object_mut().expect("path methods").values_mut() {
+            for (status, response) in operation["responses"]
+                .as_object_mut()
+                .expect("operation responses")
+            {
+                if (status.starts_with('2') && status != "204") || status == "503" {
+                    response["content"] = json!({"application/json":{"schema":true}});
+                    response["x-inkcre-dynamic-json"] = json!(true);
+                }
+            }
+        }
+    }
+    for (path, method, status) in [("/blocks", "post", 201), ("/blocks/{block_id}", "get", 200)] {
+        doc.typed::<core::Block>(path, method, status);
+    }
+    doc.typed::<Vec<core::Block>>("/blocks/recent", "get", 200);
+    let block: Value = core::Block::json_schema(&mut doc.responses).into();
+    let mut block = tagged_record(block, "block");
+    response_refs(&mut block);
+    doc.response("/blocks/{block_id}", "patch", 200, block);
+    let relation = doc.relation();
+    for (path, method) in [("/relations", "post"), ("/relations/{relation_id}", "get")] {
+        doc.response(path, method, 200, relation.clone());
+    }
+    let relation = doc.response_components["ResponseCanonicalRelation"].clone();
+    doc.response(
+        "/relations/{relation_id}",
+        "patch",
+        200,
+        tagged_record(relation, "relation"),
+    );
+    doc.response(
+        "/relations/by_block/{block_id}",
+        "get",
+        200,
+        json!({"type":"array","items":{"$ref":"#/components/schemas/ResponseCanonicalRelation"}}),
+    );
+    for (path, method, status) in [
+        ("/sources", "post", 201),
+        ("/sources/{source_id}", "get", 200),
+        ("/sources/{source_id}", "patch", 200),
+    ] {
+        doc.typed::<source::Source>(path, method, status);
+    }
+    doc.named_page::<source::Source>("/sources", "sources", json!({"type":"integer"}));
+    doc.named_page::<source::SourceType>("/source-types", "source_types", json!({"type":"string"}));
+    doc.typed::<source::SourceType>("/source-types/{type_id}", "get", 200);
+    for (path, method, status) in [
+        ("/jobs", "post", 201),
+        ("/jobs/{job_id}", "get", 200),
+        ("/jobs/{job_id}/abort", "post", 200),
+        ("/sources/{source_id}/collect", "post", 201),
+        ("/sources/{source_id}/backfill", "post", 201),
+        ("/crons/{cron_id}/run", "post", 201),
+        ("/sinks/{sink_id}/query", "post", 202),
+    ] {
+        doc.typed::<core::Job>(path, method, status);
+    }
+    doc.named_page::<core::Job>("/jobs", "jobs", json!({"type":"integer"}));
+    doc.named_page::<core::JobType>("/job-types", "job_types", json!({"type":"string"}));
+    doc.typed::<core::JobType>("/job-types/{type_id}", "get", 200);
+    let job = doc.output::<core::Job>();
+    doc.response("/crons/{cron_id}/materialize", "post", 200, nullable(job));
+    for (path, method, status) in [
+        ("/crons", "post", 201),
+        ("/crons/{cron_id}", "get", 200),
+        ("/crons/{cron_id}", "patch", 200),
+    ] {
+        doc.typed::<cron::Cron>(path, method, status);
+    }
+    doc.named_page::<cron::Cron>("/crons", "crons", json!({"type":"integer"}));
+    for method in ["get", "put"] {
+        doc.typed::<cron::CronConfig>("/cron/config", method, 200);
+    }
+    for (path, method, status) in [
+        ("/agents", "post", 201),
+        ("/agents/{agent_id}", "get", 200),
+        ("/agents/{agent_id}", "patch", 200),
+    ] {
+        doc.typed::<agent::Definition>(path, method, status);
+    }
+    doc.named_page::<agent::Definition>("/agents", "agents", json!({"type":"integer"}));
+    doc.named_page::<core::Peer>("/peers", "peers", json!({"type":"string","format":"uuid"}));
+    for path in ["/peers/self", "/peers/{peer_id}"] {
+        doc.typed::<core::Peer>(path, "get", 200);
+    }
+    doc.response("/livez","get",200,json!({"type":"object","required":["status"],"properties":{"status":{"const":"ok","type":"string"}}}));
+    let telemetry = &mut doc.paths["/telemetry/v1/{signal}"]["post"]["responses"]["200"];
+    telemetry
+        .as_object_mut()
+        .expect("registered response")
+        .remove("x-inkcre-dynamic-json");
+    telemetry["content"] =
+        json!({"application/x-protobuf":{"schema":{"type":"string","format":"binary"}}});
+    // Resolver and batch entity reads may return typed bytes or multipart MIME,
+    // in addition to their JSON projection, as implemented by content::response.
+    for (path, method) in [
+        ("/blocks/{block_id}/resolver/methods/{method}", "post"),
+        ("/entities/get", "post"),
+    ] {
+        let content = &mut doc.paths[path][method]["responses"]["200"]["content"];
+        for media in ["application/octet-stream", "multipart/related"] {
+            content[media] = json!({"schema":{"type":"string","format":"binary"}});
+        }
+    }
+}
+
+fn observation_operations(doc: &mut Document) {
+    // The top-level input is the real controller DTO. Nested provider query and
+    // record objects stay opaque; Request::validate owns their value constraints.
+    let mut body: Value =
+        inkcre_core::observability::Request::json_schema(&mut doc.generator).into();
+    body["properties"]["action"] = json!({"type":"string","enum":["status","query","ingest"]});
+    body["properties"]["expected_backend"] =
+        nullable(json!({"type":"string","enum":["postgresql","loki"]}));
+    body["oneOf"] = json!([
+        {"properties":{"action":{"const":"status"},"query":{"type":"null"},"records":{"type":"null"}}},
+        {"required":["query"],"properties":{"action":{"const":"query"},"query":{"type":"object"},"records":{"type":"null"}}},
+        {"required":["records"],"properties":{"action":{"const":"ingest"},"query":{"type":"null"},"records":{"type":"array","maxItems":100}}}
+    ]);
+    doc.operation("/observability", "post", Some(body), 200);
+    doc.paths["/observability"]["post"]["requestBody"]["x-inkcre-max-bytes"] = json!(256 * 1024);
+    let path = "/telemetry/v1/{signal}";
+    doc.operation(path, "post", None, 200);
+    doc.paths[path]["post"]["parameters"][0]["schema"] =
+        json!({"type":"string","enum":["traces","logs","metrics"]});
+    doc.paths[path]["post"]["requestBody"] = json!({"required":true,"x-inkcre-max-bytes":256*1024,"content":{"application/x-protobuf":{"schema":{"type":"string","format":"binary"}}}});
 }

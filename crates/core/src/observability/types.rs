@@ -149,12 +149,14 @@ pub struct Status {
     pub dropped: u64,
     pub error: Option<String>,
 }
-#[derive(Deserialize)]
+#[derive(schemars::JsonSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub action: String,
     pub expected_backend: Option<String>,
+    #[schemars(with = "Option<serde_json::Map<String, Value>>")]
     pub query: Option<Query>,
+    #[schemars(with = "Option<Vec<serde_json::Map<String, Value>>>")]
     pub records: Option<Vec<Record>>,
 }
 impl Request {

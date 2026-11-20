@@ -49,13 +49,14 @@ impl Form {
         Ok(())
     }
 }
-#[derive(Clone, Deserialize, Serialize, sqlx::FromRow)]
+#[derive(schemars::JsonSchema, Clone, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Definition {
     pub id: i64,
     pub name: String,
     pub system_prompt: String,
     pub model: i64,
     pub tools: Vec<String>,
+    #[schemars(with = "Option<ToolChoice>")]
     pub tool_choice: Option<sqlx::types::Json<ToolChoice>>,
     pub max_model_calls_per_turn: i32,
     pub created_at: DateTime<Utc>,

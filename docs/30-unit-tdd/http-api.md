@@ -188,3 +188,11 @@ Schema 描述的输入与 CLI 的展示投影各有 owner。CLI 的 create、upd
 跨域请求按具体 Origin 返回凭据兼容的 CORS header，浏览器 preflight 由 CORS 层处理。普通 DAV OPTIONS 保留扩展协议处理；业务请求仍要求原有认证。
 
 根路径创建 Source、Job、Cron、Agent，以及 Source collect/backfill、Cron run 和 Sink query 的成功响应带 Location，指向本次创建的资源或 Job。OpenAPI 按各自 201/202 响应声明必有的 URI-reference header；当前 Rust 返回可基于服务 origin 解析的根相对 URI。Block/Relation 写入和 graph submit 未承诺 Location。兼容 `/api/v1` 的旧状态与 header 保持各自合同。
+
+中央成功响应使用实际 Core 序列化类型推导：Block、Relation、Source、SourceType、Job、JobType、Cron、Agent Definition 和 Peer。响应使用独立的 Serialize-contract generator，组件以 Response 前缀隔离，防止请求的别名、缺省字段或可省略规则影响输出。Serde 实际总会输出的 Option 字段在响应中保持必有、值可为 null；UUID 与时间保留各自 format。sqlx::Json 的 Agent tool_choice 按其实际透明 Serde 值声明。
+
+Relation 响应从实际 Relation schema 做控制器已有的 from_/to_ → from_block_id/to_block_id 投影；Block/Relation PATCH 的 type discriminator 同样对应实际控制器。集合外层按真实 named-page 字段及 cursor 类型声明，Cron materialize 的成功值为 Job 或 null。204 响应不声明不存在的 body。
+
+仍返回通用 JSON 的发现、配置、图投影和 provider 控制器使用 boolean true schema，并标记 x-inkcre-dynamic-json；这表示调用者应接收 JSON value，不保证一套虚构的字段 DTO。Resolver 和批量实体读取同时声明实际支持的 application/octet-stream 与 multipart/related。动态扩展响应仍由其运行时能力合同说明。
+
+POST /observability 的输入来自实际 Request DTO，action 分支对应 status/query/ingest 的互斥要求，records 最多 100 项，整请求最多 256 KiB；嵌套 query/record 对象继续由观测 owner 验证，响应保持动态 JSON。POST /telemetry/v1/{signal} 将 signal 限为 traces/logs/metrics，请求与成功响应明确为 application/x-protobuf 的原始 binary，最多 256 KiB，不伪装成 protobuf 的 JSON DTO。两条路径均要求 Peer JWT；详见 [可观测性运行时](observability-runtime.md)。

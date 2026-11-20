@@ -4,7 +4,7 @@ use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Block {
     pub id: i32,
     pub storage: Option<i32>,
@@ -59,7 +59,7 @@ fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     T::deserialize(d).map(Some)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Relation {
     pub id: i32,
     pub from_: Option<i32>,
@@ -114,7 +114,7 @@ pub struct Admission {
     pub environment: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Peer {
     pub id: Uuid,
     pub name: String,
@@ -144,7 +144,9 @@ pub struct Inbound {
     pub parameters: Value,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(
+    schemars::JsonSchema, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type,
+)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
 pub enum JobStatus {
@@ -162,7 +164,7 @@ impl JobStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct JobType {
     pub id: String,
     pub description: String,
@@ -170,7 +172,7 @@ pub struct JobType {
     pub default_timeout_seconds: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Job {
     pub id: i64,
     #[serde(rename = "type")]

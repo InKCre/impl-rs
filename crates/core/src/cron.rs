@@ -16,7 +16,7 @@ const COLUMNS: &str = "id,schedule,enabled,job_type,job_parameters,job_timeout_s
 const CONFIG_KEY: &str = "core.cron";
 const CONFIG_SCHEMA: &str = "core.cron.config.v1";
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(schemars::JsonSchema, Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Cron {
     pub id: i64,
     pub schedule: String,
