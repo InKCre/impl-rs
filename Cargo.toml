@@ -14,6 +14,7 @@ members = [
     "extensions/memos",
     "extensions/rss",
     "extensions/telegram",
+    "extensions/twitter",
 ]
 exclude = ["vendor/ext-reg/runtimes/core-rs"]
 resolver = "3"

@@ -81,16 +81,7 @@ enable 保存意图后启动插件，initialize 获得该精确分发的 config 
 
 Twitter x-monkey 的浏览器会话由 app 签发和续期，使用归档专属 JWT audience。宿主仅将校验后的会话到期时间交给当前启用的 Twitter 扩展，也可在归档入口校验已有 Python 会话并在续期时转换。将 `http_public_base_url` 设为浏览器可访问的 HTTPS 地址，包含代理前缀时 Cookie 路径也包含该前缀。
 
-选用 Twitter 的 `twikit` backend 时，在本机受信任的 Python 环境安装 `twikit==2.3.3`，并配置两个绝对路径。
-
-```json
-{
-  "python_executable": "/opt/inkcre/twikit/bin/python",
-  "cookies_file": "/var/lib/inkcre/twitter-cookies.json"
-}
-```
-
-将该 JSON 的绝对路径填入 `INKCRE_TWITTER_TWIKIT_RUNTIME`。Unix 上描述文件与解释器须由管理员控制写权限，现有 Cookie 文件须为常规文件且权限为 0600。宿主只向当前启用的 Twitter 子进程提供描述文件路径。Cookie 文件供本机账号会话复用。官方 OAuth backend 可直接运行。
+官方 Twitter OAuth backend 可直接运行。选用 `twikit` backend 的 Peer 需配置受信本机解释器和私密 Cookie 文件，步骤见 [本机 Twikit 运行时](../../extensions/twitter/src/twikit/README.md)。宿主只向当前启用的 Twitter 子进程提供 `INKCRE_TWITTER_TWIKIT_RUNTIME` 指定的描述文件路径。
 
 [`inkcre/rss`](../../extensions/rss/README.md) 使用同一 Extension Name、Source 类型与 canonical 图契约提供 RSS/Atom 采集、正文提取、附件保存和三个 Resolver。构建、manifest 坐标与配置见扩展 README；backfill 明确不支持。它使用严格 XML 解析，拒绝损坏或不能对齐条目的文档，不保证 Python feedparser 的容错恢复行为或提取文本逐字相同。游标范围及可恢复投影见 [RSS 设计](../30-unit-tdd/rss-extension.md)。
 

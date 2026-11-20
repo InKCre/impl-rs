@@ -1,0 +1,81 @@
+
+<script nonce="__NONCE__">
+(() => {
+  const input = document.getElementById('jwt-secret');
+  const button = document.getElementById('connect');
+  const status = document.getElementById('connection-status');
+  const peer = document.getElementById('connection-peer');
+  const expiry = document.getElementById('connection-expiry');
+  const expiresAt = document.getElementById('session-expires-at');
+  const encoder = new TextEncoder();
+  const base64url = (bytes) => {
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
+  };
+  const encode = (value) => base64url(encoder.encode(JSON.stringify(value)));
+  const sign = async (secret) => {
+    const now = Math.floor(Date.now() / 1000);
+    const unsigned = `${encode({alg: 'HS256', typ: 'JWT'})}.${encode({
+      role: '__JWT_ROLE__', iss: '__JWT_ISSUER__', aud: '__JWT_AUDIENCE__',
+      iat: now, exp: now + __JWT_LIFETIME__
+    })}`;
+    const key = await crypto.subtle.importKey(
+      'raw', encoder.encode(secret), {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']
+    );
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(unsigned));
+    return `${unsigned}.${base64url(new Uint8Array(signature))}`;
+  };
+  button.addEventListener('click', async () => {
+    const secret = input.value;
+    input.value = '';
+    if (!secret) {
+      status.textContent = '请输入 JWT_SECRET。';
+      return;
+    }
+    if (!window.isSecureContext || !globalThis.crypto?.subtle) {
+      status.textContent = '连接需要 HTTPS 安全页面与 WebCrypto。';
+      return;
+    }
+    button.disabled = true;
+    status.textContent = '正在连接…';
+    let credential = '';
+    try {
+      credential = await sign(secret);
+      const response = await fetch('./session', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Authorization': `Bearer ${credential}`,
+          'Content-Type': 'application/json'
+        },
+        body: '{}'
+      });
+      if (!response.ok) throw new Error('connect');
+      const sessionResponse = await fetch('./api/v1/session', {
+        credentials: 'same-origin',
+        headers: {'Accept': 'application/json'}
+      });
+      const session = await sessionResponse.json();
+      if (!sessionResponse.ok || session.authenticated !== true) throw new Error('session');
+      status.textContent = 'Connected';
+      peer.textContent = session.username ? `InKCre Peer: ${session.username}` : '';
+      peer.hidden = !session.username;
+      expiresAt.textContent = session.expires_at || '';
+      expiry.hidden = !session.expires_at;
+    } catch {
+      status.textContent = '连接失败。请确认 JWT_SECRET 与当前 InKCre 部署匹配后重试。';
+    } finally {
+      credential = '';
+      input.value = '';
+      button.disabled = false;
+    }
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      button.click();
+    }
+  });
+})();
+</script>

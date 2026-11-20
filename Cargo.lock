@@ -1930,6 +1930,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "inkcre-twitter-extension"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "html-escape",
+ "inkcre-core",
+ "inkcre-extension-sdk",
+ "jsonschema",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "inout"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

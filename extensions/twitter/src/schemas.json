@@ -1,0 +1,3552 @@
+{
+  "$defs": {
+    "AIGenerated": {
+      "additionalProperties": false,
+      "properties": {
+        "media": {
+          "title": "Media",
+          "type": "boolean"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "media",
+        "source"
+      ],
+      "title": "AIGenerated",
+      "type": "object"
+    },
+    "Affiliation": {
+      "additionalProperties": false,
+      "properties": {
+        "badgeUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Badgeurl"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "ownerId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ownerid"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Affiliation",
+      "type": "object"
+    },
+    "ArchiveBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "media": {
+          "items": {
+            "$ref": "#/$defs/ArchiveMedia"
+          },
+          "maxItems": 1000,
+          "title": "Media",
+          "type": "array"
+        },
+        "posts": {
+          "items": {
+            "$ref": "#/$defs/ArchivePost"
+          },
+          "maxItems": 1000,
+          "title": "Posts",
+          "type": "array"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/ArchiveUser"
+          },
+          "maxItems": 1000,
+          "title": "Users",
+          "type": "array"
+        }
+      },
+      "title": "ArchiveBatch",
+      "type": "object"
+    },
+    "ArchiveMedia": {
+      "additionalProperties": false,
+      "properties": {
+        "alt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt"
+        },
+        "crops": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Crops"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "faces": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Faces"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "sensitive": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sensitive"
+        },
+        "sourcePostId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcepostid"
+        },
+        "sourceUserId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourceuserid"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MediaTag"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tags"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "type": {
+          "enum": [
+            "photo",
+            "video",
+            "gif"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "unavailable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unavailable"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "video": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Video"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "width": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "url"
+      ],
+      "title": "ArchiveMedia",
+      "type": "object"
+    },
+    "ArchivePost": {
+      "additionalProperties": false,
+      "properties": {
+        "aiGenerated": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AIGenerated"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "article": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Article"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "authorId": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Authorid",
+          "type": "string"
+        },
+        "card": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Card"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "community": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Community"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "communityNote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommunityNote"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "contentWarning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContentWarning"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conversationId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversationid"
+        },
+        "counts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostCounts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "countsObservedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostCountsObservedAt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "createdAt": {
+          "title": "Createdat",
+          "type": "string"
+        },
+        "editIds": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Editids"
+        },
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lang"
+        },
+        "mediaIds": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mediaids"
+        },
+        "paidPromotion": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paidpromotion"
+        },
+        "place": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Place"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Quote"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "replyPolicy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replypolicy"
+        },
+        "replyTo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplyTo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "repostOf": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repostof"
+        },
+        "sensitive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sensitive"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RichText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "authorId",
+        "createdAt"
+      ],
+      "title": "ArchivePost",
+      "type": "object"
+    },
+    "ArchiveQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "media": {
+          "items": {
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Media",
+          "type": "array"
+        },
+        "posts": {
+          "items": {
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Posts",
+          "type": "array"
+        },
+        "users": {
+          "items": {
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Users",
+          "type": "array"
+        }
+      },
+      "title": "ArchiveQuery",
+      "type": "object"
+    },
+    "ArchiveUser": {
+      "additionalProperties": false,
+      "properties": {
+        "affiliation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Affiliation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "avatarShape": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarshape"
+        },
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "bannerUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bannerurl"
+        },
+        "bio": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RichText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "counts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserCounts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "countsObservedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserCountsObservedAt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Createdat"
+        },
+        "handle": {
+          "title": "Handle",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "interstitial": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interstitial"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parody": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parody"
+        },
+        "pinnedPostIds": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pinnedpostids"
+        },
+        "professional": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Professional"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "protected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Protected"
+        },
+        "sensitive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sensitive"
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verification"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "website": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Website"
+        },
+        "withheldIn": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Withheldin"
+        }
+      },
+      "required": [
+        "id",
+        "handle",
+        "name"
+      ],
+      "title": "ArchiveUser",
+      "type": "object"
+    },
+    "Article": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ArticleBlock"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocks"
+        },
+        "coverMediaId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Covermediaid"
+        },
+        "entities": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ArticleEntity"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entities"
+        },
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "mediaIds": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mediaids"
+        },
+        "modifiedAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modifiedat"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview"
+        },
+        "publishedAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publishedat"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "Article",
+      "type": "object"
+    },
+    "ArticleBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data"
+        },
+        "entities": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entities"
+        },
+        "styles": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Styles"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "title": "ArticleBlock",
+      "type": "object"
+    },
+    "ArticleEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Data",
+          "type": "object"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "data"
+      ],
+      "title": "ArticleEntity",
+      "type": "object"
+    },
+    "Card": {
+      "additionalProperties": false,
+      "properties": {
+        "creatorUserId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Creatoruserid"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "extra": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extra"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CardImage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "player": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CardPlayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "poll": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Poll"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "siteUserId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Siteuserid"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "url"
+      ],
+      "title": "Card",
+      "type": "object"
+    },
+    "CardImage": {
+      "additionalProperties": false,
+      "properties": {
+        "alt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "CardImage",
+      "type": "object"
+    },
+    "CardPlayer": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "CardPlayer",
+      "type": "object"
+    },
+    "CashtagEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "title": "Range",
+          "type": "array"
+        },
+        "ticker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ticker"
+        },
+        "type": {
+          "const": "cashtag",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "range"
+      ],
+      "title": "CashtagEntity",
+      "type": "object"
+    },
+    "Community": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Community",
+      "type": "object"
+    },
+    "CommunityNote": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lang"
+        },
+        "text": {
+          "$ref": "#/$defs/RichText"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CommunityNote",
+      "type": "object"
+    },
+    "ContentWarning": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "ContentWarning",
+      "type": "object"
+    },
+    "HashtagEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "title": "Range",
+          "type": "array"
+        },
+        "type": {
+          "const": "hashtag",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "range"
+      ],
+      "title": "HashtagEntity",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MediaTag": {
+      "additionalProperties": false,
+      "properties": {
+        "handle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Handle"
+        },
+        "userId": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "userId"
+      ],
+      "title": "MediaTag",
+      "type": "object"
+    },
+    "MentionEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "title": "Range",
+          "type": "array"
+        },
+        "type": {
+          "const": "mention",
+          "title": "Type",
+          "type": "string"
+        },
+        "userId": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "range",
+        "userId"
+      ],
+      "title": "MentionEntity",
+      "type": "object"
+    },
+    "NativeTwitterMedia": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TwitterMedia"
+        },
+        {
+          "$ref": "#/$defs/TwitterIdentity"
+        }
+      ]
+    },
+    "NativeTwitterPost": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TwitterPost"
+        },
+        {
+          "$ref": "#/$defs/TwitterIdentity"
+        }
+      ]
+    },
+    "NativeTwitterUser": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TwitterUser"
+        },
+        {
+          "$ref": "#/$defs/TwitterIdentity"
+        }
+      ]
+    },
+    "Place": {
+      "additionalProperties": false,
+      "properties": {
+        "bbox": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                },
+                {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Country"
+        },
+        "countryCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Countrycode"
+        },
+        "fullName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fullname"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Place",
+      "type": "object"
+    },
+    "Poll": {
+      "additionalProperties": false,
+      "properties": {
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/PollChoice"
+          },
+          "minItems": 2,
+          "title": "Choices",
+          "type": "array"
+        },
+        "endsAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endsat"
+        },
+        "final": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Final"
+        },
+        "updatedAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updatedat"
+        }
+      },
+      "required": [
+        "choices"
+      ],
+      "title": "Poll",
+      "type": "object"
+    },
+    "PollChoice": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "PollChoice",
+      "type": "object"
+    },
+    "PostCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "bookmarks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bookmarks"
+        },
+        "likes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Likes"
+        },
+        "quotes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quotes"
+        },
+        "replies": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replies"
+        },
+        "reposts": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reposts"
+        },
+        "views": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Views"
+        }
+      },
+      "title": "PostCounts",
+      "type": "object"
+    },
+    "PostCountsObservedAt": {
+      "additionalProperties": false,
+      "properties": {
+        "bookmarks": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bookmarks"
+        },
+        "likes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Likes"
+        },
+        "quotes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quotes"
+        },
+        "replies": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replies"
+        },
+        "reposts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reposts"
+        },
+        "views": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Views"
+        }
+      },
+      "title": "PostCountsObservedAt",
+      "type": "object"
+    },
+    "Professional": {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Categories"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "title": "Professional",
+      "type": "object"
+    },
+    "Quote": {
+      "additionalProperties": false,
+      "properties": {
+        "postId": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Postid",
+          "type": "string"
+        },
+        "tombstone": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tombstone"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "postId"
+      ],
+      "title": "Quote",
+      "type": "object"
+    },
+    "ReplyTo": {
+      "additionalProperties": false,
+      "properties": {
+        "handle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Handle"
+        },
+        "postId": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Postid",
+          "type": "string"
+        },
+        "tombstone": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tombstone"
+        },
+        "userId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Userid"
+        }
+      },
+      "required": [
+        "postId"
+      ],
+      "title": "ReplyTo",
+      "type": "object"
+    },
+    "RichText": {
+      "additionalProperties": false,
+      "properties": {
+        "entities": {
+          "anyOf": [
+            {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "cashtag": "#/$defs/CashtagEntity",
+                    "hashtag": "#/$defs/HashtagEntity",
+                    "mention": "#/$defs/MentionEntity",
+                    "timestamp": "#/$defs/TimestampEntity",
+                    "url": "#/$defs/UrlEntity"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/UrlEntity"
+                  },
+                  {
+                    "$ref": "#/$defs/MentionEntity"
+                  },
+                  {
+                    "$ref": "#/$defs/HashtagEntity"
+                  },
+                  {
+                    "$ref": "#/$defs/CashtagEntity"
+                  },
+                  {
+                    "$ref": "#/$defs/TimestampEntity"
+                  }
+                ]
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entities"
+        },
+        "styles": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TextStyle"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Styles"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Visible"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "RichText",
+      "type": "object"
+    },
+    "TextStyle": {
+      "additionalProperties": false,
+      "properties": {
+        "range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "title": "Range",
+          "type": "array"
+        },
+        "styles": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Styles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "range",
+        "styles"
+      ],
+      "title": "TextStyle",
+      "type": "object"
+    },
+    "TimestampEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "title": "Range",
+          "type": "array"
+        },
+        "type": {
+          "const": "timestamp",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "range"
+      ],
+      "title": "TimestampEntity",
+      "type": "object"
+    },
+    "Tweet": {
+      "properties": {
+        "attachments": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attachments"
+        },
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversation Id"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "links": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Links"
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "Tweet",
+      "type": "object"
+    },
+    "TwitterBatch": {
+      "additionalProperties": false,
+      "description": "Facts captured for one common reconcile operation; transport limits stay outside.",
+      "properties": {
+        "media": {
+          "items": {
+            "$ref": "#/$defs/TwitterMedia"
+          },
+          "title": "Media",
+          "type": "array"
+        },
+        "posts": {
+          "items": {
+            "$ref": "#/$defs/TwitterPost"
+          },
+          "title": "Posts",
+          "type": "array"
+        },
+        "users": {
+          "items": {
+            "$ref": "#/$defs/TwitterUser"
+          },
+          "title": "Users",
+          "type": "array"
+        }
+      },
+      "title": "TwitterBatch",
+      "type": "object"
+    },
+    "TwitterIdentity": {
+      "additionalProperties": false,
+      "description": "A known native identity without captured entity content.",
+      "properties": {
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "TwitterIdentity",
+      "type": "object"
+    },
+    "TwitterMedia": {
+      "additionalProperties": false,
+      "properties": {
+        "alt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alt"
+        },
+        "crops": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Crops"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "faces": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 4,
+                "minItems": 4,
+                "prefixItems": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Faces"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "sensitive": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sensitive"
+        },
+        "sourcePostId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcepostid"
+        },
+        "sourceUserId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourceuserid"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MediaTag"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tags"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "type": {
+          "enum": [
+            "photo",
+            "video",
+            "gif"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "unavailable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unavailable"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "video": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Video"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "width": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "url"
+      ],
+      "title": "TwitterMedia",
+      "type": "object"
+    },
+    "TwitterPost": {
+      "additionalProperties": false,
+      "properties": {
+        "aiGenerated": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AIGenerated"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "article": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Article"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "authorId": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Authorid",
+          "type": "string"
+        },
+        "card": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Card"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "community": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Community"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "communityNote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommunityNote"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "contentWarning": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContentWarning"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "conversationId": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conversationid"
+        },
+        "counts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostCounts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "countsObservedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostCountsObservedAt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "createdAt": {
+          "title": "Createdat",
+          "type": "string"
+        },
+        "editIds": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Editids"
+        },
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lang"
+        },
+        "mediaIds": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mediaids"
+        },
+        "paidPromotion": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paidpromotion"
+        },
+        "place": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Place"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "quote": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Quote"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "replyPolicy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replypolicy"
+        },
+        "replyTo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplyTo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "repostOf": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repostof"
+        },
+        "sensitive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sensitive"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RichText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "authorId",
+        "createdAt"
+      ],
+      "title": "TwitterPost",
+      "type": "object"
+    },
+    "TwitterUser": {
+      "additionalProperties": false,
+      "properties": {
+        "affiliation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Affiliation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "avatarShape": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarshape"
+        },
+        "avatarUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatarurl"
+        },
+        "bannerUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bannerurl"
+        },
+        "bio": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RichText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "counts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserCounts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "countsObservedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserCountsObservedAt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Createdat"
+        },
+        "handle": {
+          "title": "Handle",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[1-9][0-9]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "interstitial": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Interstitial"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parody": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parody"
+        },
+        "pinnedPostIds": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[1-9][0-9]*$",
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pinnedpostids"
+        },
+        "professional": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Professional"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "protected": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Protected"
+        },
+        "sensitive": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sensitive"
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Verification"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "website": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Website"
+        },
+        "withheldIn": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Withheldin"
+        }
+      },
+      "required": [
+        "id",
+        "handle",
+        "name"
+      ],
+      "title": "TwitterUser",
+      "type": "object"
+    },
+    "UrlEntity": {
+      "additionalProperties": false,
+      "properties": {
+        "expanded": {
+          "title": "Expanded",
+          "type": "string"
+        },
+        "range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "title": "Range",
+          "type": "array"
+        },
+        "type": {
+          "const": "url",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "range",
+        "expanded"
+      ],
+      "title": "UrlEntity",
+      "type": "object"
+    },
+    "UserCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "followers": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Followers"
+        },
+        "following": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Following"
+        },
+        "likes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Likes"
+        },
+        "mediaPosts": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mediaposts"
+        },
+        "posts": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posts"
+        }
+      },
+      "title": "UserCounts",
+      "type": "object"
+    },
+    "UserCountsObservedAt": {
+      "additionalProperties": false,
+      "properties": {
+        "followers": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Followers"
+        },
+        "following": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Following"
+        },
+        "likes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Likes"
+        },
+        "mediaPosts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mediaposts"
+        },
+        "posts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Posts"
+        }
+      },
+      "title": "UserCountsObservedAt",
+      "type": "object"
+    },
+    "Verification": {
+      "additionalProperties": false,
+      "properties": {
+        "blue": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blue"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "title": "Verification",
+      "type": "object"
+    },
+    "Video": {
+      "additionalProperties": false,
+      "properties": {
+        "durationMs": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Durationms"
+        },
+        "variants": {
+          "items": {
+            "$ref": "#/$defs/VideoVariant"
+          },
+          "minItems": 1,
+          "title": "Variants",
+          "type": "array"
+        }
+      },
+      "required": [
+        "variants"
+      ],
+      "title": "Video",
+      "type": "object"
+    },
+    "VideoVariant": {
+      "additionalProperties": false,
+      "properties": {
+        "bitrate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bitrate"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "type"
+      ],
+      "title": "VideoVariant",
+      "type": "object"
+    }
+  },
+  "models": [
+    "TwitterBatch",
+    "TwitterIdentity",
+    "TwitterPost",
+    "TwitterUser",
+    "TwitterMedia",
+    "NativeTwitterPost",
+    "NativeTwitterUser",
+    "NativeTwitterMedia",
+    "Tweet",
+    "ArchiveBatch",
+    "ArchiveQuery",
+    "ArchiveUser",
+    "ArchivePost",
+    "ArchiveMedia"
+  ]
+}

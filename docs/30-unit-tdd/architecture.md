@@ -25,9 +25,9 @@ app 的 HTTP 入口及带版本前缀的兼容接口见 [HTTP API](http-api.md)�
 | Job | catalog/schema 准入、handler registry、资格判断、pending 发现、原子 claim、并发预算、持久 checkpoint、执行中取消与终态收尾；不自动重试 |
 | 定时与采集 | Source catalog/config/state/anchor、collect/backfill 框架、五段 Cron 与时区。RSS/Atom 采集正文和附件，GitHub Stars 与 Lists 对账共享图 |
 | 检索 | PostgreSQL 词法投影和 profile 向量空间，维护和重建 Job，应用方可分别获得 hybrid 的两组排名 |
-| 第一方扩展 | RSS/Atom、GitHub、Telegram 与 Mail 采集，Capture、Bilibili、Local Files 持久图读取，Learn English 词条草稿与读取，Memos HTTP 与 memo-family 图，CalDAV/CardDAV 原生服务 |
+| 第一方扩展 | RSS/Atom、GitHub、Telegram、Bilibili、Mail 与 Twitter 采集，Capture 与 Local Files 持久图读取，Learn English 词条草稿与读取，Memos HTTP 与 memo-family 图，CalDAV/CardDAV 原生服务。Twitter 同时支持 X Monkey 归档 |
 | AI 与业务运行时 | 共享模型发现、OpenAI 兼容和 Alibaba Model Studio 执行、Agent 定义和工具调用、Organization 草稿及自动 Job、Agent Query 与 MCP Sink |
-| 运维与接口 | 请求 DTO 驱动的 OpenAPI、独立 `inkcre-cli`、安装目录打包与 Registry 发布脚本。PostgreSQL 或 Loki 观测记录及有界查询，认证 OTLP 转发 |
+| 运维与接口 | 实际请求与主要响应 DTO 驱动的 OpenAPI、独立 `inkcre-cli`、安装目录打包与 Registry 发布脚本。PostgreSQL 或 Loki 观测记录及有界查询，认证 OTLP 转发 |
 
 知识与 Storage 的事务、读取和缓存边界见 [知识运行时](knowledge-runtime.md)；Job 执行与 Cron 发生见 [任务运行时](job-runtime.md)；RSS 的 canonical 图、游标与 materialization 见 [RSS 分发](rss-extension.md)。扩展通用方法不会自动成为业务 handler，必须通过 SDK capability descriptor 声明并注册 typed adapter。
 
@@ -38,6 +38,22 @@ app 默认运行 Peer 续租、插件 reconcile、Job worker 与 Cron loop。wor
 Rust worker 取消执行并等待本机收尾后写终态，但进程崩溃或关闭写入失败会留下 running 行，需要确认实际执行器停止后显式维护。当前 Python scanner 仍可能自动关闭全局过期行，混合部署不具备跨执行器的统一收尾保证，具体限制见任务运行时。
 
 数据库准入使用 `extension-distribution-open-v1`。native runtime 使用具备 `authenticated` 能力的独立登录角色；HTTP JWT 则校验 HS256、role、issuer、audience、iat 和 exp，不设置 token lifetime 上限。
+
+## 嵌入 Core
+
+启动时用 `Core::connect(database_url, max_connections).await?` 建立连接池并验证准入。长期保留这个实例，克隆的句柄共享连接池与本机能力注册。退出时调用 `core.close().await`。下面的函数读取一个 Block 的现有文本投影。
+
+```rust
+use inkcre_core::{Core, knowledge::{Result, TextOptions}};
+
+async fn block_text(core: &Core, id: i32) -> Result<Option<String>> {
+    let reader = core.knowledge().reader(id).await?;
+    reader.get_text(TextOptions {
+        materialize_missing: false,
+        ..TextOptions::default()
+    }).await
+}
+```
 
 ## 插件边界
 
