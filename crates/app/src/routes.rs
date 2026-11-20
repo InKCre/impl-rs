@@ -1,10 +1,7 @@
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
 
@@ -128,10 +125,11 @@ pub fn router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
         .route("/openapi.json", get(crate::openapi::document))
-        .route("/health/live", get(live))
-        .route("/health/ready", get(ready))
-        .route("/livez", get(live))
-        .route("/readyz", get(ready))
+        .route("/health/live", get(crate::health::legacy_live))
+        .route("/health/ready", get(crate::health::legacy_ready))
+        .route("/livez", get(crate::health::live))
+        .route("/heartbeat", get(crate::health::live))
+        .route("/readyz", get(crate::health::ready))
         .merge(protected.clone())
         .merge(mcp.clone())
         .merge(canonical)
@@ -153,6 +151,7 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             request_timeout,
         ))
+        .layer(middleware::from_fn(crate::cors::apply))
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request| {
                 let route = request
@@ -163,10 +162,6 @@ pub fn router(state: AppState) -> Router {
             }),
         )
         .with_state(state)
-}
-
-async fn live() -> Json<Value> {
-    Json(json!({"status":"live"}))
 }
 
 async fn authenticate(State(state): State<AppState>, request: Request, next: Next) -> Response {
@@ -220,18 +215,6 @@ async fn request_timeout(State(state): State<AppState>, request: Request, next: 
         )
         .into_response(),
     }
-}
-
-async fn ready(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-    if !state.lease_valid.load(Ordering::Relaxed) {
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "peer_unavailable",
-            "Peer lease is not current",
-        ));
-    }
-    state.core.admission().await?;
-    Ok(Json(json!({"status":"ready"})))
 }
 
 async fn self_info(State(state): State<AppState>) -> Json<Value> {

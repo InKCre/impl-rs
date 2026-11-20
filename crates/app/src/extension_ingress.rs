@@ -30,6 +30,7 @@ pub const RESERVED_MOUNTS: &[&str] = &[
     "extensions",
     "graph",
     "health",
+    "heartbeat",
     "job-types",
     "jobs",
     "lexical-retrieval",

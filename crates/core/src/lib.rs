@@ -27,6 +27,7 @@ pub mod sink;
 pub mod source;
 pub mod worker;
 
+pub use admission::CONTRACT_REVISION;
 pub use error::{Error, Result};
 pub use graph::{EntityRecords, GraphBlockMapping, GraphInput, GraphSubmission, GraphTransaction};
 pub use models::*;
