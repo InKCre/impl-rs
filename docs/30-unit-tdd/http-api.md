@@ -177,7 +177,7 @@ Cron 默认 enabled，schedule 使用五段 UNIX 格式、分钟粒度，时区�
 
 ## OpenAPI 与 CLI 发现
 
-`GET /openapi.json` 从处理器实际使用的请求 DTO 推导 JSON Schema，并将引用统一放在 components/schemas。POST Relation 使用接受原始 from_/to_ 的持久端点命令；PATCH 保留 REST 长名。GraphForm 的宽命令 ID、字段可空性及未知字段策略继续由实际 DTO 决定。Source collect 的 requestBody 为 optional，backfill 为 required。
+`GET /openapi.json` 从处理器实际使用的请求 DTO 推导 JSON Schema，并将引用统一放在 `components/schemas`。Block、Relation、Source、Cron 的 PATCH 使用更新类型，省略字段时保留原值。Relation 的 POST 合同使用 `from_` 和 `to_`，PATCH 合同使用 `from_block_id` 和 `to_block_id`。Agent 先将局部 JSON 合并到现有表单，再校验合并结果。GraphForm 的字段可空性、宽命令 ID 和未知字段策略由其 DTO 决定。Source collect 可以省略请求体，backfill 需要请求体。
 
 Query 参数由 OpenAPI owner 根据对应控制器的实际提取与固定 Python 合同显式声明，包含类型、可空性、默认值和范围：分页 limit 为正数，除 Jobs 默认 20 条外，未指定 limit 的 canonical 集合不固定页长；cursor 区分整数、字符串与 Peer UUID。Jobs 额外支持 type/status，Source 命令支持正数 timeout_seconds，Peer 路由入口支持 route_to_peer UUID。邻域 contents 使用 form/explode，编码为重复 query key。没有查询参数的 Sink 列表不会虚构分页字段。
 

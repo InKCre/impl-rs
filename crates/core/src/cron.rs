@@ -53,24 +53,28 @@ pub struct CronPatch {
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "String")]
     pub schedule: Option<String>,
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "bool")]
     pub enabled: Option<bool>,
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "String")]
     pub job_type: Option<String>,
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "serde_json::Map<String, Value>")]
     pub job_parameters: Option<Value>,
     #[serde(
         default,

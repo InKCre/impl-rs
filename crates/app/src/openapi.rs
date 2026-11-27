@@ -55,19 +55,6 @@ impl Document {
         self.operation(path, method, Some(schema.into()), status);
     }
 
-    fn patch<T: JsonSchema>(&mut self, path: &str, omit: &[&str]) {
-        let mut schema: Value = T::json_schema(&mut self.generator).into();
-        if let Some(object) = schema.as_object_mut() {
-            object.remove("required");
-        }
-        for key in omit {
-            if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
-                properties.remove(*key);
-            }
-        }
-        self.operation(path, "patch", Some(schema), 200);
-    }
-
     /// Query extraction is route-owned in Axum, rather than embedded in body DTOs.
     /// Keep these parameter declarations next to the public operation registrations;
     /// request bodies continue to derive from the actual input types.
@@ -165,11 +152,11 @@ fn build() -> Value {
     type Object = serde_json::Map<String, Value>;
     let mut doc = Document::new();
     doc.json::<core::BlockInput>("/blocks", "post", 201);
-    doc.patch::<core::BlockInput>("/blocks/{block_id}", &[]);
+    doc.json::<core::BlockPatch>("/blocks/{block_id}", "patch", 200);
     // POST accepts the persisted-endpoint producer form (including the runtime's
     // from_/to_ aliases). PATCH publishes the canonical long-name REST DTO.
     doc.json::<core::RelationInput>("/relations", "post", 200);
-    doc.patch::<crate::routes::RelationRequest>("/relations/{relation_id}", &[]);
+    doc.json::<core::RelationPatch>("/relations/{relation_id}", "patch", 200);
     doc.json::<crate::entity_routes::CanonicalGraphForm>("/graph", "post", 200);
     doc.json::<crate::entity_routes::EntityForm>("/entities/get", "post", 200);
     doc.json::<crate::routes::PathInput>("/graph/path", "post", 200);
@@ -183,7 +170,7 @@ fn build() -> Value {
     doc.paths[invoke_path]["post"]["requestBody"]["required"] = json!(false);
 
     doc.json::<source::SourceInput>("/sources", "post", 201);
-    doc.patch::<source::SourceInput>("/sources/{source_id}", &["type"]);
+    doc.json::<source::SourcePatch>("/sources/{source_id}", "patch", 200);
     for command in ["collect", "backfill"] {
         let path = format!("/sources/{{source_id}}/{command}");
         doc.json::<Object>(&path, "post", 201);
@@ -194,12 +181,18 @@ fn build() -> Value {
         }
     }
     doc.json::<cron::CronInput>("/crons", "post", 201);
-    doc.patch::<cron::CronInput>("/crons/{cron_id}", &[]);
+    doc.json::<cron::CronPatch>("/crons/{cron_id}", "patch", 200);
     doc.json::<cron::CronConfig>("/cron/config", "put", 200);
     doc.json::<crate::config_routes::Replacement>("/configs/{key}", "put", 200);
     doc.json::<Object>("/configs/{key}", "patch", 200);
     doc.json::<core::agent::Form>("/agents", "post", 201);
-    doc.patch::<core::agent::Form>("/agents/{agent_id}", &[]);
+    // The Agent handler merges a partial JSON document into the stored Form.
+    let mut agent_patch: Value = core::agent::Form::json_schema(&mut doc.generator).into();
+    agent_patch
+        .as_object_mut()
+        .expect("Agent Form object schema")
+        .remove("required");
+    doc.operation("/agents/{agent_id}", "patch", Some(agent_patch), 200);
     doc.json::<core::sink::SinkInput>("/sinks", "post", 201);
     doc.json::<Object>("/sinks/{sink_id}/config", "put", 200);
     doc.json::<core::sink::QueryInput>("/sinks/{sink_id}/query", "post", 202);
