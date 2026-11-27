@@ -69,6 +69,7 @@ pub struct SourcePatch {
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "serde_json::Map<String, Value>")]
     pub config: Option<Value>,
     #[serde(
         default,

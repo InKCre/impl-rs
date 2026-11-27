@@ -38,12 +38,14 @@ pub struct BlockPatch {
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "String")]
     pub resolver: Option<String>,
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "String")]
     pub content: Option<String>,
 }
 
@@ -85,6 +87,7 @@ pub struct RelationPatch {
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(rename = "from_block_id", with = "i32")]
     pub from_: Option<i32>,
     #[serde(
         default,
@@ -92,12 +95,14 @@ pub struct RelationPatch {
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(rename = "to_block_id", with = "i32")]
     pub to_: Option<i32>,
     #[serde(
         default,
         deserialize_with = "present",
         skip_serializing_if = "Option::is_none"
     )]
+    #[schemars(with = "String")]
     pub content: Option<String>,
 }
 
