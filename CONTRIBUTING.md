@@ -2,7 +2,7 @@
 
 先阅读 `AGENTS.md` 和共享设计，再修改实现。`core` 拥有可复用的业务与数据库访问能力；`app` 负责配置、HTTP 传输、认证和进程生命周期。HTTP handler 不直接持有另一套业务 SQL。
 
-工具链固定为 Rust 1.93.0。先执行 `git submodule update --init --recursive`；`docs/_shared` 是共享契约，`vendor/ext-reg` 提供独立的 Rust 扩展 SDK。修改 SDK 时进入子模块的功能分支，先交付其源码，再更新本仓库子模块指针。
+工具链固定为 Rust 1.93.0。先执行 `git submodule update --init --recursive`；`docs/_shared` 是共享契约，`vendor/ext-reg` 提供独立的 Rust 扩展 SDK。当前 SDK 提交由 [ext-reg 的 `develop`](https://github.com/InKCre/ext-reg/tree/develop/runtimes/core-rs) 提供远端可达性，构建使用本仓库记录的 Gitlink。更新 SDK 时，先在 Registry 仓库交付并确认新提交可从长期保留的远端分支或标签取得，再更新 Gitlink。
 
 Linux 构建整个工作区需要 `pkg-config` 和 OpenSSL 开发库（Debian/Ubuntu 包名为 `libssl-dev`），用于 Mail 的 IMAP TLS。macOS 使用系统 TLS。
 

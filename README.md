@@ -20,7 +20,7 @@ cp .env.example .env
 
 第一方扩展位于 [`extensions/`](extensions)。宿主从可信本地 manifest 或支持 `rust_stdio` 的 Registry 精确选择产物。部署、打包和分发发布见 [运行说明](docs/40-deployment/runtime.md)，开发扩展使用 [Rust 扩展 SDK](vendor/ext-reg/runtimes/core-rs/README.md)。
 
-静态检查执行 `bash scripts/check.sh`；当前阶段不包含自动化测试。显式运行 `scripts/accept_runtime.py` 可验收知识入口、真实 RSS/Atom worker、取消恢复与 Cron，**仅允许空的独占 disposable development 数据库**，不能指向已有资料的共享部署；准备方式见运行说明。
+静态检查执行 `bash scripts/check.sh`。运行时验收可显式执行 `scripts/accept_runtime.py` 可验收知识入口、真实 RSS/Atom worker、取消恢复与 Cron，**仅允许空的独占 disposable development 数据库**，不能指向已有资料的共享部署；准备方式见运行说明。
 
 数据库 schema 和 migrations 由 `impl-py` 维护。跨实现客户端使用根路径的 [HTTP API](docs/30-unit-tdd/http-api.md)，早期 Rust 客户端可继续使用 `/api/v1` 接口。
 
