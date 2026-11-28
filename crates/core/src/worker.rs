@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use tokio::{
     sync::{mpsc, watch},
     task::{JoinHandle, JoinSet},
-    time::{MissedTickBehavior, timeout},
+    time::{Instant, MissedTickBehavior, sleep_until, timeout},
 };
 use uuid::Uuid;
 
@@ -450,7 +450,7 @@ impl Worker {
     }
 }
 
-struct HandlerTask(JoinHandle<Result<()>>);
+struct HandlerTask(JoinHandle<(Instant, Result<()>)>);
 impl Drop for HandlerTask {
     fn drop(&mut self) {
         self.0.abort();
@@ -560,41 +560,62 @@ async fn execute(
         let handler_context = context.clone();
         let handler_job = claimed.clone();
         let trace_scope = core.trace_scope();
+        let deadline = Instant::now() + Duration::from_secs_f64(remaining);
         let mut task = HandlerTask(tokio::spawn(async move {
             let future = handler.handle(handler_context, handler_job);
-            if let Some(scope) = trace_scope { scope.scope(future).await } else { future.await }
+            let result = if let Some(scope) = trace_scope {
+                scope.scope(future).await
+            } else {
+                future.await
+            };
+            (Instant::now(), result)
         }));
-        let deadline = tokio::time::sleep(Duration::from_secs_f64(remaining));
-        tokio::pin!(deadline);
-        let mut tick = tokio::time::interval(config.abort_poll_interval);
-        tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        let (status, error) = loop {
-            tokio::select! {
-                biased;
-                _=stop.changed()=>break (JobStatus::Aborted,None),
-                _=&mut deadline=>break (JobStatus::TimedOut,None),
-                _=context.cancelled()=>break (JobStatus::Aborted,None),
-                _=tick.tick()=> {
-                    if !registry.current(&claimed.type_,registration.generation) {break (JobStatus::Aborted,None);}
-                    let observation=tokio::select! {
-                        _=stop.changed()=>break (JobStatus::Aborted,None),
-                        _=&mut deadline=>break (JobStatus::TimedOut,None),
-                        result=timeout(Duration::from_secs(3),control(&core,id))=>result,
-                    };
-                    match observation {
-                        Ok(Ok(control)) if control.status!=JobStatus::Running=>break (if control.status.terminal(){control.status}else{JobStatus::Aborted},None),
-                        Ok(Ok(control)) if control.abort_requested=>break (JobStatus::Aborted,None),
-                        Ok(Ok(_))=>{},
-                        _=>tracing::warn!(job_id=id,"Job cancellation observation unavailable"),
+        let observe_control = async {
+            let mut tick = tokio::time::interval(config.abort_poll_interval);
+            tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+            loop {
+                tick.tick().await;
+                if !registry.current(&claimed.type_, registration.generation) {
+                    return JobStatus::Aborted;
+                }
+                match timeout(Duration::from_secs(3), control(&core, id)).await {
+                    Ok(Ok(control)) if control.status != JobStatus::Running => {
+                        return if control.status.terminal() {
+                            control.status
+                        } else {
+                            JobStatus::Aborted
+                        };
                     }
-                },
-                result=&mut task.0=>break if !registry.current(&claimed.type_,registration.generation) {
-                    (JobStatus::Aborted,None)
-                } else {match result {
-                    Ok(Ok(()))=>(JobStatus::Finished,None),
-                    _=>(JobStatus::Failed,Some("handler_failed")),
-                }},
+                    Ok(Ok(control)) if control.abort_requested => return JobStatus::Aborted,
+                    Ok(Ok(_)) => {}
+                    _ => tracing::warn!(job_id = id, "Job cancellation observation unavailable"),
+                }
             }
+        };
+        let completion = tokio::select! {
+            biased;
+            _ = stop.changed() => Err(JobStatus::Aborted),
+            _ = sleep_until(deadline) => {
+                // The handler and timer can both be ready when the worker wakes.
+                if task.0.is_finished() && let Ok(completion) = (&mut task.0).await {
+                    Ok(Ok(completion))
+                } else {
+                    Err(JobStatus::TimedOut)
+                }
+            }
+            _ = context.cancelled() => Err(JobStatus::Aborted),
+            status = observe_control => Err(status),
+            result = &mut task.0 => Ok(result),
+        };
+        let (status, error) = match completion {
+            Err(status) => (status, None),
+            Ok(Ok((completed_at, _))) if completed_at >= deadline => (JobStatus::TimedOut, None),
+            Ok(_) if context.is_cancelled()
+                || !registry.current(&claimed.type_, registration.generation) => {
+                (JobStatus::Aborted, None)
+            }
+            Ok(Ok((_, Ok(())))) => (JobStatus::Finished, None),
+            Ok(_) => (JobStatus::Failed, Some("handler_failed")),
         };
         if !task.0.is_finished() {
             let _ = cancel.send(true);
